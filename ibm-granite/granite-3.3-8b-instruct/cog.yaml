@@ -1,0 +1,30 @@
+# Configuration for Cog ⚙️
+# Reference: https://cog.run/yaml
+
+# image name:version
+image: "r8.im/ibm-granite/granite-3.3-8b-instruct:1.0.0"
+
+build:
+  # set to true if your model requires a GPU
+  gpu: true
+  cuda: "12.4"
+
+  # python version in the form '3.11' or '3.11.4'
+  python_version: "3.11"
+
+  # path to a Python requirements.txt file
+  python_requirements: requirements.txt
+
+  # commands run after the environment is setup
+  run:
+    # Restore pydantic version which cog forced to <2. https://github.com/replicate/cog/issues/2253
+    - --mount=type=cache,target=/root/.cache/pip pip install "$(grep 'pydantic==' /tmp/requirements.txt)"
+    # Install FlashInfer for vllm
+    - --mount=type=cache,target=/root/.cache/pip pip install "flashinfer-python==0.2.2" -i https://flashinfer.ai/whl/cu124/torch2.6/
+
+# predict.py defines how predictions are run on your model
+predict: "predict.py:Predictor"
+
+#concurrency capabilities of the model.
+concurrency:
+  max: 16

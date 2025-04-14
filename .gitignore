@@ -1,0 +1,4 @@
+.cog/
+*.bak
+venv/
+.venv/
