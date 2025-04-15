@@ -38,6 +38,13 @@ sudo nvidia-ctk runtime configure --runtime=docker
 docker run --rm  --gpus all -e NVIDIA_DRIVER_CAPABILITIES=compute,utility ubuntu nvidia-smi
 ```
 
+Also see <https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/docker-specialized.html>.
+You may need to edit `/etc/nvidia-container-runtime/config.toml` to change `supported-driver-capabilities` and restart Docker.
+
+```toml
+supported-driver-capabilities = "compute,utility"
+```
+
 ## Model folder
 
 Create folders whose path matches the Huggingface slug for the model.
@@ -79,7 +86,7 @@ Once you have built the `requirements.txt` file, you will want to create a virtu
 Just don't put the virtual env folder in the model folder or `cog` will include it in the container image which we don't want.
 
 ```sh
-uv venv --python 3.11 ../venv
+(cd .. && uv venv --python 3.11 venv)
 source ../venv/bin/activate
 uv pip install --requirements requirements.txt
 ```
