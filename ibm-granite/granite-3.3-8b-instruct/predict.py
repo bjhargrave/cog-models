@@ -236,8 +236,8 @@ class Predictor(BasePredictor):
             assert len(result.outputs) == 1, (
                 "Expected exactly one output from generation request."
             )
-
-            text = result.outputs[0].text
+            output = result.outputs[0]
+            text = output.text
             # Normalize text by removing any incomplete surrogate pairs (common with emojis)
             text = text.replace("\N{REPLACEMENT CHARACTER}", "")
 
@@ -245,7 +245,7 @@ class Predictor(BasePredictor):
 
             start = len(text)
 
-        log.debug("result", text=text, finish_reason=result.outputs[0].finish_reason)
+        log.debug("result", text=text, finish_reason=output.finish_reason)
         log.info(f"Generation took {time.time() - start_time:.2f}s")
 
         if not self._testing:
