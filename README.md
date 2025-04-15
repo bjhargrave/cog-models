@@ -2,7 +2,9 @@
 
 This project holds model packaging folders to build containers to deploy to Replicate using the [cog](https://github.com/replicate/cog) project.
 
-## cog
+## Tools
+
+### cog
 
 You will need to select the release of [cog](https://github.com/replicate/cog/releases) to use for a model.
 I am using 0.14.4 as of this writing.
@@ -10,12 +12,30 @@ You will need to place the `cog` command on your PATH.
 
 On any `cog` command you can add `--debug` for more output.
 
-## uv
+### uv
 
 Install `uv`
 
 ```sh
 curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+### docker
+
+You will need to install Docker CE, and its `buildx` plugin, and the Nvidia container toolkit.
+
+For example,
+
+```sh
+sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+sudo dnf install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER
+sudo systemctl enable docker
+sudo systemctl start docker
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+sudo dnf install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+docker run --rm  --gpus all -e NVIDIA_DRIVER_CAPABILITIES=compute,utility ubuntu nvidia-smi
 ```
 
 ## Model folder
@@ -38,13 +58,13 @@ ibm-granite/granite-3.3-8b-instruct
     └── .gitignore
 ```
 
-## pyproject.toml
+### pyproject.toml
 
 This file needs to be edited to specify the cog version matching the `cog` command installed earlier.
 You will also need to specify the `python-version` for the container and any other python packages, such as `vllm` which are needed by `predict.py`.
 Use `==` version specifications for build reproducibility.
 
-## requirements.txt
+### requirements.txt
 
 This file is generated from the `pyproject.toml` file to capture the python package dependencies with exact versions.
 
@@ -66,7 +86,7 @@ uv pip install --requirements requirements.txt
 
 Make sure to use the same python version as specified in `pyproject.toml`.
 
-## cog.yaml
+### cog.yaml
 
 Edit the `image` key to the full name of the image to use when pushing to Replicate.
 For example,
@@ -80,16 +100,16 @@ Make sure to update the image version if you have already pushed that version.
 Also update any other versions, cuda, python, as needed.
 Make sure to use the same python version as specified in `pyproject.toml`.
 
-### predictor_config.json
+#### predictor_config.json
 
 This file needs to be edited to specify the `served_model_name` in the `engine_arg` and any other desired engine args for vLLM.
 
-## predict.py
+### predict.py
 
 This module contains the `setup` and `predict` methods invoked to setup and infer the model.
 This code may need changes to support certain models and their parameters such as multimodal parameters.
 
-## Model weights
+### weights
 
 Model weights are packaged in the container.
 They need to be downloaded into the `weights` folder of the model folder.
@@ -150,7 +170,7 @@ Use `LocalForward 5000 localhost:5000` in your `.ssh/config` file if you ssh int
 
 ## Deploying
 
-When you are ready to deploy to Replicate, you must first [create the model](https://replicate.com/create) if this is the first container deployment for the model.
+When you are ready to deploy to Replicate, you must first [create the model](https://replicate.com/create) on the Replicate web site if this is the first container deployment for the model.
 
 Then login to Replicate and push the container to the Replicate container repository.
 
