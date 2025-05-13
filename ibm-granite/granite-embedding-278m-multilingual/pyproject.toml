@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "granite-embedding-278m-multilingual"
+version = "1.0.0"
+description = "Dependencies for predict.py"
+dependencies = [
+    "cog==0.14.10",
+    "vllm==0.8.5.post1",
+]
+requires-python = "~= 3.12.0"
