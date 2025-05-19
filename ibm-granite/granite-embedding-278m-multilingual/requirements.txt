@@ -47,7 +47,7 @@ cloudpickle==3.1.1
     # via
     #   outlines
     #   vllm
-cog==0.14.10
+cog==0.14.12
     # via granite-embedding-278m-multilingual (pyproject.toml)
 compressed-tensors==0.9.3
     # via vllm
@@ -391,8 +391,14 @@ sentencepiece==0.2.0
     #   mistral-common
     #   vllm
     #   xgrammar
+setuptools==80.7.1
+    # via
+    #   torch
+    #   vllm
 shellingham==1.5.4
     # via typer
+six==1.17.0
+    # via vllm
 sniffio==1.3.1
     # via
     #   anyio

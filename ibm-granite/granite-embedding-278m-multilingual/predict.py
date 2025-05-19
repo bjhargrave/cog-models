@@ -35,10 +35,6 @@ class UserError(Exception):
     pass
 
 
-class VLLMError(Exception):
-    pass
-
-
 @dataclass
 class PredictorConfig:
     """
@@ -130,10 +126,10 @@ class Predictor(BasePredictor):
         try:
             self.engine = AsyncLLMEngine.from_engine_args(engine_args)
         except TypeError as e:
-            log.error("UnexpectedEngineArg", exception=e)
+            log.error("Unexpected EngineArg", exc_info=e)
             raise
         except Exception as e:
-            log.error("VLLMUnknownError", exception=e)
+            log.error("VLLM Unknown Error", exc_info=e)
             raise
 
         self._testing = True
