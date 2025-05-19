@@ -1,0 +1,5 @@
+# Download model weights into this folder
+#
+# For example:
+# huggingface-cli download --local-dir . ibm-granite/granite-embedding-278m-multilingual
+*
