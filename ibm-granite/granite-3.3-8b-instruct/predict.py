@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Prediction interface for Cog ⚙️
 # https://cog.run/python
 
@@ -17,19 +19,17 @@ import cog
 import structlog
 import torch
 
-from cog import BasePredictor, AsyncConcatenateIterator, Input
-from cog.types import Path as CogPath
+from cog import AsyncConcatenateIterator, BasePredictor, Input, Path as CogPath
 from structlog.contextvars import bind_contextvars, clear_contextvars
-from vllm import AsyncLLMEngine
-from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.sampling_params import SamplingParams
+from transformers import PreTrainedTokenizerBase
+from vllm import (
+    AsyncEngineArgs,
+    AsyncLLMEngine,
+    SamplingParams,
+)
 
 
 class UserError(Exception):
-    pass
-
-
-class VLLMError(Exception):
     pass
 
 
@@ -83,13 +83,15 @@ class Predictor(BasePredictor):
         try:
             self.engine = AsyncLLMEngine.from_engine_args(engine_args)
         except TypeError as e:
-            log.error("UnexpectedEngineArg", exception=e)
+            log.error("Unexpected EngineArg", exc_info=e)
             raise
         except Exception as e:
-            log.error("VLLMUnknownError", exception=e)
+            log.error("VLLM Unknown Error", exc_info=e)
             raise
 
-        self.tokenizer = await self.engine.get_tokenizer()
+        self.tokenizer = typing.cast(
+            PreTrainedTokenizerBase, await self.engine.get_tokenizer()
+        )
 
         if self.config.chat_template:
             self.chat_template = self.config.chat_template
@@ -97,8 +99,8 @@ class Predictor(BasePredictor):
                 "Using chat template from predictor_config.json",
                 chat_template=self.chat_template,
             )
-        elif self.tokenizer.chat_template:  # type: ignore
-            self.chat_template = self.tokenizer.chat_template  # type: ignore
+        elif self.tokenizer.chat_template:
+            self.chat_template = self.tokenizer.get_chat_template()
             log.debug(
                 "Using chat template from tokenizer", chat_template=self.chat_template
             )
@@ -117,8 +119,9 @@ class Predictor(BasePredictor):
         log.debug("Test prediction output", test_output=test_output)
         log.info("setup() complete")
 
-    async def predict(  # pylint: disable=invalid-overridden-method, arguments-differ, too-many-arguments, too-many-locals
+    async def predict(  # pylint: disable=invalid-overridden-method, arguments-differ, too-many-arguments, too-many-positional-arguments, too-many-locals
         self,
+        *,
         # prompt must be the first argument
         # The LangChain Replicate class will use the first argument to supply the prompt
         prompt: str = Input(
@@ -180,7 +183,7 @@ class Predictor(BasePredictor):
         log = self.logger.bind()
         log.info("predict() commencing")
 
-        if not system_prompt and prompt.startswith("<|start_of_role|>"):
+        if not system_prompt and prompt.lstrip().startswith("<|start_of_role|>"):
             formatted_prompt = prompt
             log.debug(
                 "Using user prompt as formatted prompt ",
@@ -194,11 +197,14 @@ class Predictor(BasePredictor):
                 conversation.append({"role": "system", "content": system_prompt})
             conversation.append({"role": "user", "content": prompt})
 
-            formatted_prompt = self.tokenizer.apply_chat_template(  # type: ignore
-                chat_template=chat_template,
-                conversation=conversation,
-                tokenize=False,
-                add_generation_prompt=True,
+            formatted_prompt = typing.cast(
+                str,
+                self.tokenizer.apply_chat_template(
+                    conversation=conversation,
+                    chat_template=chat_template,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                ),
             )
             log.debug(
                 "Formatted prompt using chat template",
@@ -226,7 +232,7 @@ class Predictor(BasePredictor):
         log.debug("SamplingParams", sampling_params=sampling_params)
 
         generator = self.engine.generate(
-            formatted_prompt,  # type: ignore
+            formatted_prompt,
             sampling_params,
             request_id,
         )
