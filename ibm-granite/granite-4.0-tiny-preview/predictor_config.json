@@ -1,0 +1,7 @@
+{
+    "engine_args": {
+        "served_model_name": "ibm-granite/granite-4.0-tiny-preview",
+        "dtype": "bfloat16",
+        "trust_remote_code": false
+    }
+}
