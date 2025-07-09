@@ -7,8 +7,8 @@
 
 import inspect
 import json
+import os
 import pathlib
-import random
 import time
 import typing
 
@@ -69,6 +69,11 @@ class Predictor(BasePredictor):
         self.config = self.load_config(weights)
         log = self.logger.bind()
         log.info("setup() commencing")
+
+        # As of vllm 0.9.2, these settings are needed for v1 engine support
+        if "VLLM_USE_V1" not in os.environ:
+            os.environ["VLLM_USE_V1"] = "1"
+            os.environ["VLLM_ATTENTION_BACKEND"] = "FLASHINFER"
 
         engine_args = self.config.engine_args or {}
         engine_args["model"] = weights.resolve().as_posix()
@@ -179,8 +184,6 @@ class Predictor(BasePredictor):
         start_time = time.time()
         structlog.contextvars.clear_contextvars()
         request_id = str(next(self.request_counter))
-        if not seed:
-            seed = int(random.randint(0, 100000))
         structlog.contextvars.bind_contextvars(request_id=request_id, user_prompt=prompt)
         log = self.logger.bind()
         log.info("predict() commencing")

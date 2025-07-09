@@ -1,0 +1,6 @@
+# Download model weights into this folder
+#
+# For example:
+# huggingface-cli download --local-dir . ibm-granite/granite-3.3-8b-instruct
+*
+

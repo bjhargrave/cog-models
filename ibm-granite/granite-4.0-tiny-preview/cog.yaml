@@ -17,9 +17,9 @@ build:
   python_requirements: requirements.txt
 
   # commands run after the environment is setup
-  # run:
+  run:
     # Install FlashInfer for vLLM V1 engine
-    # - --mount=type=cache,target=/root/.cache/pip pip install "flashinfer-python==0.2.2" -i https://flashinfer.ai/whl/cu124/torch2.6/
+    - --mount=type=cache,target=/root/.cache/pip pip install "flashinfer-python==0.2.6.post1" -i https://download.pytorch.org/whl/cu128/flashinfer
 
 # predict.py defines how predictions are run on your model
 predict: "predict.py:Predictor"
