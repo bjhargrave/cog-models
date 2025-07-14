@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Configuration for Cog ⚙️
+# Reference: https://cog.run/yaml
+
+# image name:version
+image: "r8.im/ibm-granite/granite-vision-3.3-2b:1.0.0"
+
+build:
+  # set to true if your model requires a GPU
+  gpu: true
+  cuda: "12.6"
+
+  # python version in the form '3.11' or '3.11.4'
+  python_version: "3.12"
+
+  # path to a Python requirements.txt file
+  python_requirements: requirements.txt
+
+  # commands run after the environment is setup
+  run:
+    # Install FlashInfer for vllm
+    - --mount=type=cache,target=/root/.cache/pip pip install "flashinfer-python==0.2.6.post1" -i https://download.pytorch.org/whl/cu128/flashinfer
+
+# predict.py defines how predictions are run on your model
+predict: "predict.py:Predictor"
+
+#concurrency capabilities of the model.
+concurrency:
+  max: 16
