@@ -1,0 +1,6 @@
+{
+    "engine_args": {
+        "served_model_name": "ibm-granite/granite-vision-3.3-2b",
+        "trust_remote_code": false
+    }
+}
