@@ -1,0 +1,12 @@
+{
+    "engine_args": {
+        "served_model_name": "ibm-granite/granite-speech-3.3-8b",
+        "trust_remote_code": true,
+        "enable_lora": true,
+        "max_lora_rank": 64,
+        "limit_mm_per_prompt": {
+            "image": 0,
+            "video": 0
+        }
+    }
+}
