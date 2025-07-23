@@ -17,8 +17,8 @@ import librosa
 import structlog
 import torch
 
-
 from cog import AsyncConcatenateIterator, BasePredictor, Input, Path as CogPath
+from numpy import ndarray
 from transformers import PreTrainedTokenizerBase
 from transformers.utils import LEGACY_PROCESSOR_CHAT_TEMPLATE_FILE
 from vllm import (
@@ -137,13 +137,43 @@ class Predictor(BasePredictor):
 
         self._testing = True
         generator = self.predict(
-            **dict(self._defaults, **{"max_tokens": 50, "prompt": "What is your name?"})
+            **dict(self._defaults, max_tokens=50, prompt="What is your name?")
         )
         test_output = "".join([tok async for tok in generator])  # type: ignore
         self._testing = False
         structlog.contextvars.clear_contextvars()
         log.debug("Test prediction output", test_output=test_output)
         log.info("setup() complete")
+
+    def process_multi_modal_data(
+        self, audio: list[CogPath] | None
+    ) -> list[tuple[ndarray[typing.Any, typing.Any], int | float]] | None:
+        """Process the data at the file paths into suitable multi modal data format.
+
+        Args:
+            audio (list[CogPath] | None): The file paths to the multi modal data.
+
+        Returns:
+            list[tuple[ndarray[typing.Any, typing.Any], int | float]] | None: The
+            processed multi modal data items for passing to the model.
+        """
+        if not audio:
+            return None
+        log = self.logger.bind()
+        multi_modal_data: list[tuple[ndarray[typing.Any, typing.Any], int | float]] = []
+        for index, file in enumerate(audio):
+            try:
+                item = librosa.load(file, sr=None)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                log.error(
+                    "Unable to process multi modal data file",
+                    index=index,
+                    file=file,
+                    exc_info=e,
+                )
+            else:
+                multi_modal_data.append(item)
+        return multi_modal_data
 
     async def predict(  # pylint: disable=invalid-overridden-method, arguments-differ, too-many-arguments, too-many-positional-arguments, too-many-locals
         self,
@@ -212,6 +242,8 @@ class Predictor(BasePredictor):
         log = self.logger.bind()
         log.info("predict() commencing")
 
+        multi_modal_data = self.process_multi_modal_data(audio)
+
         if not system_prompt and prompt.lstrip().startswith("<|start_of_role|>"):
             formatted_prompt = prompt
             log.debug(
@@ -222,7 +254,11 @@ class Predictor(BasePredictor):
             conversation: list[dict[str, typing.Any]] = []
             if system_prompt:
                 conversation.append({"role": "system", "content": system_prompt})
-            user_content = "<|audio|>" * len(audio) + prompt if audio else prompt
+            user_content = (
+                "<|audio|>" * len(multi_modal_data) + prompt
+                if multi_modal_data
+                else prompt
+            )
             conversation.append({"role": "user", "content": user_content})
 
             formatted_prompt = typing.cast(
@@ -263,16 +299,16 @@ class Predictor(BasePredictor):
             {
                 "prompt": formatted_prompt,
                 "multi_modal_data": {
-                    "audio": [librosa.load(item, sr=None) for item in audio],
+                    "audio": multi_modal_data,
                 },
             }
-            if audio
+            if multi_modal_data
             else formatted_prompt
         )
 
         lora_request = (
             LoRARequest("speech", 1, self.config.engine_args["model"])
-            if audio
+            if multi_modal_data
             else None
         )
         log.debug("LoRARequest", lora_request=lora_request)

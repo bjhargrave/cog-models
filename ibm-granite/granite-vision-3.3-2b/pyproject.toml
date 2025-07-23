@@ -1,6 +1,6 @@
 [project]
 name = "granite-vision-3.3-2b"
-version = "1.0.0"
+version = "1.0.1"
 description = "Dependencies for predict.py"
 dependencies = [
     "cog==0.15.10",
