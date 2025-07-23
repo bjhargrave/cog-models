@@ -130,13 +130,43 @@ class Predictor(BasePredictor):
 
         self._testing = True
         generator = self.predict(
-            **dict(self._defaults, **{"max_tokens": 50, "prompt": "What is your name?"})
+            **dict(self._defaults, max_tokens=50, prompt="What is your name?")
         )
         test_output = "".join([tok async for tok in generator])  # type: ignore
         self._testing = False
         structlog.contextvars.clear_contextvars()
         log.debug("Test prediction output", test_output=test_output)
         log.info("setup() complete")
+
+    def process_multi_modal_data(
+        self, images: list[CogPath] | None
+    ) -> list[PIL.Image.Image] | None:
+        """Process the data at the file paths into suitable multi modal data format.
+
+        Args:
+            images (list[CogPath] | None): The file paths to the multi modal data.
+
+        Returns:
+            list[PIL.Image.Image] | None: The
+            processed multi modal data items for passing to the model.
+        """
+        if not images:
+            return None
+        log = self.logger.bind()
+        multi_modal_data: list[PIL.Image.Image] = []
+        for index, file in enumerate(images):
+            try:
+                item = PIL.Image.open(file).convert("RGB")
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                log.error(
+                    "Unable to process multi modal data file",
+                    index=index,
+                    file=file,
+                    exc_info=e,
+                )
+            else:
+                multi_modal_data.append(item)
+        return multi_modal_data
 
     async def predict(  # pylint: disable=invalid-overridden-method, arguments-differ, too-many-arguments, too-many-positional-arguments, too-many-locals
         self,
@@ -215,6 +245,8 @@ class Predictor(BasePredictor):
         if not images and image:  # Handle deprecated image input
             images = [image]
 
+        multi_modal_data = self.process_multi_modal_data(images)
+
         if not system_prompt and prompt.lstrip().startswith(
             ("<|start_of_role|>", "<|system|>")
         ):
@@ -231,8 +263,8 @@ class Predictor(BasePredictor):
                 ]
                 conversation.append({"role": "system", "content": system_content})
             user_content: list[dict[str, typing.Any]] = []
-            if images:
-                for _ in images:
+            if multi_modal_data:
+                for _ in multi_modal_data:
                     user_content.append({"type": "image"})
 
             user_content.append({"type": "text", "text": prompt})
@@ -276,10 +308,10 @@ class Predictor(BasePredictor):
             {
                 "prompt": formatted_prompt,
                 "multi_modal_data": {
-                    "image": [PIL.Image.open(image).convert("RGB") for image in images],
+                    "image": multi_modal_data,
                 },
             }
-            if images
+            if multi_modal_data
             else formatted_prompt
         )
 

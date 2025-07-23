@@ -1,6 +1,10 @@
 {
     "engine_args": {
         "served_model_name": "ibm-granite/granite-vision-3.3-2b",
-        "trust_remote_code": false
+        "trust_remote_code": false,
+        "limit_mm_per_prompt": {
+            "audio": 0,
+            "video": 0
+        }
     }
 }
