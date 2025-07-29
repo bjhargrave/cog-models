@@ -41,12 +41,12 @@ class PredictorConfig:
     Attributes:
         chat_template (str | None): A chat template to format the prompt with. If not provided,
                                          the default chat template will be used.
-        engine_args (dict[str, str] | None): A dictionary of engine arguments. If not provided,
+        engine_args (dict[str, str]): A dictionary of engine arguments. If not provided,
                                       an empty dictionary will be used.
     """
 
     chat_template: str | None = None
-    engine_args: dict[str, typing.Any] | None = field(default_factory=dict)
+    engine_args: dict[str, typing.Any] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.engine_args is None:
@@ -70,7 +70,7 @@ class Predictor(BasePredictor):
         log = self.logger.bind()
         log.info("setup() commencing")
 
-        engine_args = self.config.engine_args or {}
+        engine_args = self.config.engine_args
         engine_args["model"] = weights.resolve().as_posix()
         if "dtype" not in engine_args:
             engine_args["dtype"] = "auto"
@@ -170,7 +170,6 @@ class Predictor(BasePredictor):
 
     async def predict(  # pylint: disable=invalid-overridden-method, arguments-differ, too-many-arguments, too-many-positional-arguments, too-many-locals
         self,
-        *,
         # prompt must be the first argument
         # The LangChain Replicate class will use the first argument to supply the prompt
         prompt: str = Input(

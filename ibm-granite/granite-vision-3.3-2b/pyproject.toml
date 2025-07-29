@@ -1,9 +1,9 @@
 [project]
 name = "granite-vision-3.3-2b"
-version = "1.0.1"
+version = "1.0.2"
 description = "Dependencies for predict.py"
 dependencies = [
-    "cog==0.15.10",
-    "vllm==0.9.2",
+    "cog==0.16.1",
+    "vllm==0.10.0",
 ]
 requires-python = "~= 3.12.0"

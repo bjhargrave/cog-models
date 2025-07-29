@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # The .dockerignore file excludes files from the container build process.
 #
 # https://docs.docker.com/engine/reference/builder/#dockerignore-file
@@ -15,3 +17,6 @@ __pycache__
 
 # Model download metadata
 weights/.cache
+
+# Exclude test info
+tests

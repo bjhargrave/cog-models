@@ -177,7 +177,6 @@ class Predictor(BasePredictor):
 
     async def predict(  # pylint: disable=invalid-overridden-method, arguments-differ, too-many-arguments, too-many-positional-arguments, too-many-locals
         self,
-        *,
         # prompt must be the first argument
         # The LangChain Replicate class will use the first argument to supply the prompt
         prompt: str = Input(
