@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Prediction interface for Cog ⚙️
 # https://cog.run/python
 
@@ -6,30 +8,26 @@
 import inspect
 import json
 import pathlib
-import random
 import time
 import typing
-
 from dataclasses import dataclass, field
-from uuid import uuid4
 
 import cog
 import structlog
 import torch
 
-from cog import BasePredictor, AsyncConcatenateIterator, Input
-from cog.types import Path as CogPath
-from structlog.contextvars import bind_contextvars, clear_contextvars
-from vllm import AsyncLLMEngine
-from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.sampling_params import SamplingParams
+from cog import AsyncConcatenateIterator, BasePredictor, Input, Path as CogPath
+from transformers import PreTrainedTokenizerBase
+from transformers.utils import LEGACY_PROCESSOR_CHAT_TEMPLATE_FILE
+from vllm import (
+    AsyncEngineArgs,
+    AsyncLLMEngine,
+    SamplingParams,
+)
+from vllm.utils import Counter
 
 
 class UserError(Exception):
-    pass
-
-
-class VLLMError(Exception):
     pass
 
 
@@ -41,12 +39,12 @@ class PredictorConfig:
     Attributes:
         chat_template (str | None): A chat template to format the prompt with. If not provided,
                                          the default chat template will be used.
-        engine_args (dict[str, str] | None): A dictionary of engine arguments. If not provided,
+        engine_args (dict[str, str]): A dictionary of engine arguments. If not provided,
                                       an empty dictionary will be used.
     """
 
     chat_template: str | None = None
-    engine_args: dict[str, typing.Any] | None = field(default_factory=dict)
+    engine_args: dict[str, typing.Any] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.engine_args is None:
@@ -58,19 +56,19 @@ class PredictorConfig:
             )
 
 
-# pylint: disable=invalid-overridden-method, signature-differs
+# pylint: disable=invalid-overridden-method, signature-differs, abstract-method
 class Predictor(BasePredictor):
     logger = structlog.get_logger(__name__)
 
     async def setup(self, weights: CogPath) -> None:
         # Model weights must be in the "weights" folder.
         # This can be overridden with the COG_WEIGHTS env var.
-        clear_contextvars()
+        structlog.contextvars.clear_contextvars()
         self.config = self.load_config(weights)
         log = self.logger.bind()
         log.info("setup() commencing")
 
-        engine_args = self.config.engine_args or {}
+        engine_args = self.config.engine_args
         engine_args["model"] = weights.resolve().as_posix()
         if "dtype" not in engine_args:
             engine_args["dtype"] = "auto"
@@ -83,41 +81,62 @@ class Predictor(BasePredictor):
         try:
             self.engine = AsyncLLMEngine.from_engine_args(engine_args)
         except TypeError as e:
-            log.error("UnexpectedEngineArg", exception=e)
+            log.error("Unexpected EngineArg", exc_info=e)
             raise
         except Exception as e:
-            log.error("VLLMUnknownError", exception=e)
+            log.error("VLLM Unknown Error", exc_info=e)
             raise
 
-        self.tokenizer = await self.engine.get_tokenizer()
+        self.tokenizer = typing.cast(
+            PreTrainedTokenizerBase, await self.engine.get_tokenizer()
+        )
 
-        if self.config.chat_template:
-            self.chat_template = self.config.chat_template
+        chat_template = self.config.chat_template
+        if chat_template:
             log.debug(
                 "Using chat template from predictor_config.json",
-                chat_template=self.chat_template,
-            )
-        elif self.tokenizer.chat_template:  # type: ignore
-            self.chat_template = self.tokenizer.chat_template  # type: ignore
-            log.debug(
-                "Using chat template from tokenizer", chat_template=self.chat_template
+                chat_template=chat_template,
             )
         else:
-            raise UserError(
-                "No prompt template specified in predictor_config.json or tokenizer"
+            # Handle legacy processor chat_template.json file
+            chat_template_file = weights.joinpath(LEGACY_PROCESSOR_CHAT_TEMPLATE_FILE)
+            if chat_template_file.is_file():
+                chat_template_json = json.loads(
+                    chat_template_file.read_text(encoding="utf-8")
+                )
+                chat_template = chat_template_json["chat_template"]
+                log.debug(
+                    "Using chat template from " + LEGACY_PROCESSOR_CHAT_TEMPLATE_FILE,
+                    chat_template=chat_template,
+                    chat_template_file=chat_template_file,
+                )
+
+        if chat_template:
+            if isinstance(self.tokenizer.chat_template, dict):
+                self.tokenizer.chat_template["default"] = chat_template
+            else:
+                self.tokenizer.chat_template = chat_template
+        elif self.tokenizer.chat_template:
+            log.debug(
+                "Using chat template from tokenizer",
+                chat_template=self.tokenizer.get_chat_template(),
             )
+        else:
+            raise UserError("No prompt template specified")
+
+        self.request_counter = Counter()
 
         self._testing = True
         generator = self.predict(
-            **dict(self._defaults, **{"max_tokens": 50, "prompt": "What is your name?"})
+            **dict(self._defaults, max_tokens=50, prompt="What is your name?")
         )
         test_output = "".join([tok async for tok in generator])  # type: ignore
         self._testing = False
-        clear_contextvars()
+        structlog.contextvars.clear_contextvars()
         log.debug("Test prediction output", test_output=test_output)
         log.info("setup() complete")
 
-    async def predict(  # pylint: disable=invalid-overridden-method, arguments-differ, too-many-arguments, too-many-locals
+    async def predict(  # pylint: disable=invalid-overridden-method, arguments-differ, too-many-arguments, too-many-positional-arguments, too-many-locals
         self,
         # prompt must be the first argument
         # The LangChain Replicate class will use the first argument to supply the prompt
@@ -172,33 +191,34 @@ class Predictor(BasePredictor):
         ),
     ) -> AsyncConcatenateIterator[str]:  # type: ignore
         start_time = time.time()
-        clear_contextvars()
-        request_id = uuid4().hex
-        if not seed:
-            seed = int(random.randint(0, 100000))
-        bind_contextvars(request_id=request_id, user_prompt=prompt)
+        structlog.contextvars.clear_contextvars()
+        request_id = str(next(self.request_counter))
+        structlog.contextvars.bind_contextvars(
+            request_id=request_id, user_prompt=prompt
+        )
         log = self.logger.bind()
         log.info("predict() commencing")
 
-        if not system_prompt and prompt.startswith("<|start_of_role|>"):
+        if not system_prompt and prompt.lstrip().startswith("<|start_of_role|>"):
             formatted_prompt = prompt
             log.debug(
                 "Using user prompt as formatted prompt ",
                 formatted_prompt=formatted_prompt,
             )
         else:
-            if not chat_template:
-                chat_template = self.chat_template  # type: ignore
-            conversation = []
+            conversation: list[dict[str, typing.Any]] = []
             if system_prompt:
                 conversation.append({"role": "system", "content": system_prompt})
             conversation.append({"role": "user", "content": prompt})
 
-            formatted_prompt = self.tokenizer.apply_chat_template(  # type: ignore
-                chat_template=chat_template,
-                conversation=conversation,
-                tokenize=False,
-                add_generation_prompt=True,
+            formatted_prompt = typing.cast(
+                str,
+                self.tokenizer.apply_chat_template(
+                    conversation=conversation,
+                    chat_template=chat_template,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                ),
             )
             log.debug(
                 "Formatted prompt using chat template",
@@ -226,7 +246,7 @@ class Predictor(BasePredictor):
         log.debug("SamplingParams", sampling_params=sampling_params)
 
         generator = self.engine.generate(
-            formatted_prompt,  # type: ignore
+            formatted_prompt,
             sampling_params,
             request_id,
         )

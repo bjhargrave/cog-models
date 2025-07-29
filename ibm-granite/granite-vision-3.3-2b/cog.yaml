@@ -4,9 +4,12 @@
 # Reference: https://cog.run/yaml
 
 # image name:version
-image: "r8.im/ibm-granite/granite-vision-3.3-2b:1.0.1"
+image: "r8.im/ibm-granite/granite-vision-3.3-2b:1.0.2"
 
 build:
+  # Enable new Cog runtime implementation
+  cog_runtime: false
+
   # set to true if your model requires a GPU
   gpu: true
   cuda: "12.6"
@@ -27,4 +30,4 @@ predict: "predict.py:Predictor"
 
 #concurrency capabilities of the model.
 concurrency:
-  max: 16
+  max: 3
