@@ -27,7 +27,6 @@ from vllm import (
     SamplingParams,
 )
 from vllm.inputs import SingletonPrompt
-from vllm.lora.request import LoRARequest
 from vllm.utils import Counter, GiB_bytes
 
 
@@ -78,6 +77,11 @@ class Predictor(BasePredictor):
             engine_args["dtype"] = "auto"
         if "tensor_parallel_size" not in engine_args:
             engine_args["tensor_parallel_size"] = max(torch.cuda.device_count(), 1)
+        if "default_mm_loras" not in engine_args:
+            # add lora for audio input
+            engine_args["default_mm_loras"] = {
+                "audio": weights.resolve().as_posix()
+            }
         if "max_model_len" not in engine_args:
             # Lower max model length for memory availability
             cuda_mem_info = torch.cuda.mem_get_info()
@@ -305,18 +309,10 @@ class Predictor(BasePredictor):
             else formatted_prompt
         )
 
-        lora_request = (
-            LoRARequest("speech", 1, self.config.engine_args["model"])
-            if multi_modal_data
-            else None
-        )
-        log.debug("LoRARequest", lora_request=lora_request)
-
         generator = self.engine.generate(
             singleton_prompt,
             sampling_params,
             request_id,
-            lora_request=lora_request,
         )
         start = 0
 

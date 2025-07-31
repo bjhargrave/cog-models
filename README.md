@@ -123,7 +123,7 @@ They need to be downloaded into the `weights` folder of the model folder.
 For example,
 
 ```sh
-huggingface-cli download --local-dir weights ibm-granite/granite-3.3-8b-instruct
+hf download --local-dir weights ibm-granite/granite-3.3-8b-instruct
 ```
 
 These model weight files are not committed to the git repo but are added to the container image.
@@ -133,7 +133,7 @@ These model weight files are not committed to the git repo but are added to the 
 To build the container, use the following command.
 
 ```sh
-cog build --progress plain --separate-weights
+cog build --progress plain --separate-weights --use-cog-base-image
 ```
 
 When the build is done, 2 docker images will be created.
@@ -183,7 +183,7 @@ Then login to Replicate and push the container to the Replicate container reposi
 
 ```sh
 cog login
-cog push --progress plain --separate-weights
+cog push --progress plain --separate-weights --use-cog-base-image
 ```
 
 After the container is pushed, you will need to go to the Replicate web site and configure the model settings and create a deployment for the model.
