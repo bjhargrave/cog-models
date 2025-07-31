@@ -4,7 +4,7 @@
 # Reference: https://cog.run/yaml
 
 # image name:version
-image: "r8.im/ibm-granite/granite-speech-3.3-8b:1.0.2"
+image: "r8.im/ibm-granite/granite-speech-3.3-8b:1.0.3"
 
 build:
   # Enable new Cog runtime implementation

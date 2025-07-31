@@ -1,6 +1,6 @@
 [project]
 name = "granite-speech-3.3-8b"
-version = "1.0.2"
+version = "1.0.3"
 description = "Dependencies for predict.py"
 dependencies = [
     "cog==0.16.1",
