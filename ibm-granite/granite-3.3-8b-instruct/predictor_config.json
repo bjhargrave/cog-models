@@ -1,4 +1,11 @@
 {
+    "chat_template": "chat_template.jinja",
+    "chat_template_content_format": "string",
+    "enable_log_requests": true,
+    "enable_force_include_usage": true,
+    "enable_auto_tool_choice": true,
+    "tool_call_parser": "granite",
+    "reasoning_parser": "granite",
     "engine_args": {
         "served_model_name": "ibm-granite/granite-3.3-8b-instruct",
         "trust_remote_code": false
