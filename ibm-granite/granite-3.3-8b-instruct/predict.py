@@ -102,8 +102,17 @@ class ChatCompletionDocumentParam(typing.TypedDict, total=False):
     """
 
     text: str
-    doc_id: str | None
+    doc_id: str | int | None
     title: str | None
+
+
+def process_documents(
+    documents: list[ChatCompletionDocumentParam],
+) -> list[dict[str, str]] | None:
+    """Convert all document values to str."""
+    if documents:
+        return [{k: str(v) for k, v in document.items()} for document in documents]
+    return None
 
 
 def init_logger(name: str) -> logging.Logger:
@@ -134,7 +143,7 @@ def init_logger(name: str) -> logging.Logger:
 logger = init_logger(__name__)
 
 
-# pylint: disable=invalid-overridden-method, signature-differs, abstract-method
+# pylint: disable=invalid-overridden-method, signature-differs, abstract-method, too-many-instance-attributes
 class Predictor(BasePredictor):
     async def setup(self, weights: CogPath) -> None:
         # Model weights must be in the "weights" folder.
@@ -363,7 +372,7 @@ class Predictor(BasePredictor):
                 tools=[ChatCompletionToolsParam.model_validate(tool) for tool in tools]
                 if tools
                 else None,
-                documents=documents or None,  # pyright: ignore[reportArgumentType]
+                documents=process_documents(documents),
                 chat_template=chat_template,
                 add_generation_prompt=add_generation_prompt,
                 chat_template_kwargs=chat_template_kwargs,
@@ -441,7 +450,7 @@ class Predictor(BasePredictor):
                     "chat_template": chat_template or self.resolved_chat_template,
                     "add_generation_prompt": add_generation_prompt,
                     "tools": tools or None,
-                    "documents": documents or None,
+                    "documents": process_documents(documents),
                 }
                 _chat_template_kwargs.update(chat_template_kwargs)
 
