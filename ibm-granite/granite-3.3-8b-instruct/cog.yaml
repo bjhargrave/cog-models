@@ -4,15 +4,16 @@
 # Reference: https://cog.run/yaml
 
 # image name:version
-image: "r8.im/ibm-granite/granite-3.3-8b-instruct:1.0.1"
+image: "r8.im/ibm-granite/granite-3.3-8b-instruct:1.1.1"
 
 build:
   # Enable new Cog runtime implementation
-  cog_runtime: false
+  cog_runtime: true
 
   # set to true if your model requires a GPU
   gpu: true
-  cuda: "12.6"
+  # This needs to match the CUDA version in pyproject.toml
+  cuda: "12.8"
 
   # python version in the form '3.11' or '3.11.4'
   python_version: "3.12"
@@ -21,9 +22,9 @@ build:
   python_requirements: requirements.txt
 
   # commands run after the environment is setup
-  run:
+  # run:
     # Install FlashInfer for vllm
-    - --mount=type=cache,target=/root/.cache/pip pip install "flashinfer-python==0.2.6.post1" -i https://download.pytorch.org/whl/cu128/flashinfer
+    #- --mount=type=cache,target=/root/.cache/pip pip install "flashinfer-python==0.2.6.post1" -i https://download.pytorch.org/whl/cu128/flashinfer
 
 # predict.py defines how predictions are run on your model
 predict: "predict.py:Predictor"
