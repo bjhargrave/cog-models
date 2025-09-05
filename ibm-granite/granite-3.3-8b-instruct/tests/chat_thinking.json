@@ -1,0 +1,11 @@
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "What is Pi?"
+        }
+    ],
+    "chat_template_kwargs": {
+        "thinking": true
+    }
+}

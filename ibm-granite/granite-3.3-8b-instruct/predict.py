@@ -271,11 +271,11 @@ class Predictor(BasePredictor):
             default=[],
         ),  # pyright: ignore[reportArgumentType]
         documents: list[ChatCompletionDocumentParam] = Input(
-            description="Documents for request.",
+            description="Documents for request. Passed to the chat template.",
             default=[],
         ),  # pyright: ignore[reportArgumentType]
         tools: list[ChatCompletionToolParam] = Input(
-            description="Tools for request.",
+            description="Tools for request. Passed to the chat template.",
             default=[],
         ),  # pyright: ignore[reportArgumentType]
         system_prompt: str | None = Input(
@@ -284,17 +284,17 @@ class Predictor(BasePredictor):
             default=None,
         ),  # pyright: ignore[reportArgumentType]
         chat_template: str | None = Input(
-            description="A template to format the prompt with. If not provided, "
-            "the default prompt template will be used.",
+            description="A template to format the prompt with. If not specified, "
+            "the chat template provided by the model will be used.",
             default=None,
         ),  # pyright: ignore[reportArgumentType]
         add_generation_prompt: bool = Input(
-            description="Add generation prompt. Passed to chat template. Defaults to True.",
+            description="Add generation prompt. Passed to the chat template. Defaults to True.",
             default=True,
         ),  # pyright: ignore[reportArgumentType]
-        thinking: bool = Input(
-            description="Whether to enable thinking. Passed to chat template. Defaults to False.",
-            default=False,
+        chat_template_kwargs: dict[str, typing.Any] = Input(
+            description="Additional arguments to be passed to the chat template.",
+            default={},
         ),  # pyright: ignore[reportArgumentType]
         min_tokens: int = Input(
             description="The minimum number of tokens the model should generate as output.",
@@ -366,9 +366,7 @@ class Predictor(BasePredictor):
                 documents=documents or None,  # pyright: ignore[reportArgumentType]
                 chat_template=chat_template,
                 add_generation_prompt=add_generation_prompt,
-                chat_template_kwargs={
-                    "thinking": thinking,
-                },
+                chat_template_kwargs=chat_template_kwargs,
                 n=1,
                 top_k=top_k,
                 top_p=top_p,
@@ -439,17 +437,21 @@ class Predictor(BasePredictor):
                     tokenizer=tokenizer,
                     content_format=resolved_content_format,
                 )
+                _chat_template_kwargs: dict[str, typing.Any] = {
+                    "chat_template": chat_template or self.resolved_chat_template,
+                    "add_generation_prompt": add_generation_prompt,
+                    "tools": tools or None,
+                    "documents": documents or None,
+                }
+                _chat_template_kwargs.update(chat_template_kwargs)
+
                 request_prompt = apply_hf_chat_template(
                     tokenizer=tokenizer,  # pyright: ignore[reportArgumentType]
                     conversation=conversation,
-                    chat_template=chat_template or self.resolved_chat_template,
-                    tools=tools or None,  # pyright: ignore[reportArgumentType]
                     model_config=model_config,
-                    tokenize=False,
-                    add_generation_prompt=add_generation_prompt,
-                    documents=documents or None,
-                    thinking=thinking,
+                    **_chat_template_kwargs,
                 )
+
                 mm_data = await mm_data_future
                 # CompletionRequest does not support multimodal data
                 if mm_data:
@@ -520,10 +522,10 @@ class Predictor(BasePredictor):
             )
             if not self._testing:
                 current_scope = cog.current_scope()
-                for name, value in usage.model_dump(
-                    exclude_unset=True, exclude_none=True
-                ).items():
-                    current_scope.record_metric(name, value)
+                current_scope.record_metric("input_token_count", usage.prompt_tokens)
+                current_scope.record_metric(
+                    "output_token_count", usage.completion_tokens
+                )
 
         logger.info("predict() complete")
 
