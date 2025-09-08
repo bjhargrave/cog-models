@@ -13,7 +13,6 @@ import pathlib
 import time
 import typing
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
-from dataclasses import dataclass, field
 
 import cog
 import torch
@@ -21,7 +20,7 @@ import torch
 from cog import AsyncConcatenateIterator, BasePredictor, Input, Path as CogPath
 from cog.coder import json_coder  # pylint: disable=unused-import # noqa: F401
 from openai.types.chat import ChatCompletionToolParam
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from vllm import (
     AsyncEngineArgs,
     AsyncLLMEngine,
@@ -59,39 +58,27 @@ from vllm.entrypoints.openai.serving_models import (
 from vllm.utils import Counter
 
 
-class UserError(Exception):
-    pass
-
-
 class ResponseError(Exception):
     pass
 
 
-@dataclass
-class PredictorConfig:
+class PredictorConfig(BaseModel):
     """PredictorConfig is the configuration class for the Predictor."""
 
-    chat_template: str | None = field(default=None)
-    chat_template_content_format: ChatTemplateContentFormatOption = field(
+    model_config = ConfigDict(extra="allow")
+
+    chat_template: str | None = Field(default=None)
+    chat_template_content_format: ChatTemplateContentFormatOption = Field(
         default="auto"
     )
-    enable_log_requests: bool = field(default=False)
-    max_log_len: int | None = field(default=None)
-    enable_force_include_usage: bool = field(default=False)
-    enable_auto_tool_choice: bool = field(default=False)
-    tool_call_parser: str | None = field(default=None)
-    reasoning_parser: str = field(default="")
-    response_role: str = field(default="assistant")
-    engine_args: dict[str, typing.Any] = field(default_factory=dict)
-
-    def __post_init__(self):
-        if self.engine_args is None:
-            self.engine_args = {}
-        elif not isinstance(self.engine_args, dict):
-            raise UserError(
-                "Invalid predictor_config.json: engine_args must be "
-                "a valid JSON object that maps to a dictionary."
-            )
+    enable_log_requests: bool = Field(default=False)
+    max_log_len: int | None = Field(default=None)
+    enable_force_include_usage: bool = Field(default=False)
+    enable_auto_tool_choice: bool = Field(default=False)
+    tool_call_parser: str | None = Field(default=None)
+    reasoning_parser: str = Field(default="")
+    response_role: str = Field(default="assistant")
+    engine_args: dict[str, typing.Any] = Field(default_factory=dict)
 
 
 class ChatCompletionDocumentParam(typing.TypedDict, total=False):
@@ -155,15 +142,12 @@ class Predictor(BasePredictor):
         if self.resolved_chat_template:
             logger.debug("Using chat template from predictor_config.json")
 
-        engine_args = self.config.engine_args
-        if "model" not in engine_args:
-            engine_args["model"] = weights.resolve().as_posix()
-        if "dtype" not in engine_args:
-            engine_args["dtype"] = "auto"
-        if "tensor_parallel_size" not in engine_args:
-            engine_args["tensor_parallel_size"] = max(torch.cuda.device_count(), 1)
+        engine_args = AsyncEngineArgs(**self.config.engine_args)
+        if "model" not in self.config.engine_args:
+            engine_args.model = weights.resolve().as_posix()
+        if "tensor_parallel_size" not in self.config.engine_args:
+            engine_args.tensor_parallel_size = max(torch.cuda.device_count(), 1)
 
-        engine_args = AsyncEngineArgs(**engine_args)
         logger.debug("AsyncEngineArgs engine_args=%s", engine_args)
 
         try:
@@ -650,18 +634,9 @@ class Predictor(BasePredictor):
             if not predictor_config_path.exists():
                 predictor_config_path = None
         if predictor_config_path:
-            try:
-                logger.debug(
-                    "Loading predictor_config.json path=%s", predictor_config_path
-                )
-                with predictor_config_path.open(
-                    mode="r",
-                    encoding="utf-8",
-                ) as f:
-                    config = json.load(f)
-                config = PredictorConfig(**config)
-            except Exception as e:
-                raise UserError(f"Invalid predictor_config.json: {e}") from e
+            logger.debug("Loading predictor_config.json path=%s", predictor_config_path)
+            json_data = predictor_config_path.read_text(encoding="utf-8")
+            config = PredictorConfig.model_validate_json(json_data)
         else:
             config = PredictorConfig()
 
