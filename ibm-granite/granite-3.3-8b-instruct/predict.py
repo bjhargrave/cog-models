@@ -37,10 +37,10 @@ from vllm.entrypoints.chat_utils import (
 )
 from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import (
+    ChatCompletionNamedToolChoiceParam,
     ChatCompletionRequest,
     ChatCompletionStreamResponse,
     ChatCompletionResponse,
-    ChatCompletionToolsParam,
     CompletionRequest,
     CompletionStreamResponse,
     CompletionResponse,
@@ -100,6 +100,25 @@ def process_documents(
     if documents:
         return [{k: str(v) for k, v in document.items()} for document in documents]
     return None
+
+
+def process_tool_choice(
+    tool_choice: str | None,
+) -> (
+    ChatCompletionNamedToolChoiceParam
+    | typing.Literal["none", "auto", "required"]
+    | None
+):
+    """Convert string tool_choice value to the desired usable value."""
+    match tool_choice:
+        case "none" | "auto" | "required" | None:
+            return tool_choice
+        case _:
+            try:
+                return json.loads(tool_choice)
+            except json.JSONDecodeError:
+                logger.exception("Invalid tool_choice value")
+                return None
 
 
 def init_logger(name: str) -> logging.Logger:
@@ -271,6 +290,11 @@ class Predictor(BasePredictor):
             description="Tools for request. Passed to the chat template.",
             default=[],
         ),  # pyright: ignore[reportArgumentType]
+        tool_choice: str | None = Input(
+            description="Tool choice for request. "
+            "If the choice is a specific function, this should be specified as a JSON string.",
+            default=None,
+        ),  # pyright: ignore[reportArgumentType]
         system_prompt: str | None = Input(
             description="Completion API system prompt. "
             "The chat template provides a good default.",
@@ -353,9 +377,8 @@ class Predictor(BasePredictor):
             request = ChatCompletionRequest(
                 model=self.get_model_name(),
                 messages=messages,  # pyright: ignore[reportArgumentType]
-                tools=[ChatCompletionToolsParam.model_validate(tool) for tool in tools]
-                if tools
-                else None,
+                tools=tools or None,  # pyright: ignore[reportArgumentType]
+                tool_choice=process_tool_choice(tool_choice),
                 documents=process_documents(documents),
                 chat_template=chat_template,
                 add_generation_prompt=add_generation_prompt,
