@@ -1,6 +1,9 @@
 {
-    "prompt": "What is Pi?",
+    "prompt": "Sally is a girl and has 3 brothers.\nEach brother has 2 sisters.\nHow many sisters does Sally have?",
     "chat_template_kwargs": {
         "thinking": true
-    }
+    },
+    "max_tokens": 4000,
+    "min_tokens": 200,
+    "temperature": 0
 }

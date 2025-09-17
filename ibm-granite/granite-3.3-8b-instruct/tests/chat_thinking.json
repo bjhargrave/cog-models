@@ -2,10 +2,13 @@
     "messages": [
         {
             "role": "user",
-            "content": "What is Pi?"
+            "content": "Which version number is greater, 9.11 or 9.9?"
         }
     ],
     "chat_template_kwargs": {
         "thinking": true
-    }
+    },
+    "max_tokens": 4000,
+    "min_tokens": 200,
+    "temperature": 0
 }

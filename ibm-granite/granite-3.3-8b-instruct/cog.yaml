@@ -31,4 +31,4 @@ predict: "predict.py:Predictor"
 
 #concurrency capabilities of the model.
 concurrency:
-  max: 5
+  max: 4

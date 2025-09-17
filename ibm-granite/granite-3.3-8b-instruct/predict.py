@@ -12,7 +12,7 @@ import os
 import pathlib
 import time
 import typing
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator
 
 import cog
 import torch
@@ -339,11 +339,11 @@ class Predictor(BasePredictor):
         ),  # pyright: ignore[reportArgumentType]
         presence_penalty: float = Input(description="Presence penalty", default=0.0),  # pyright: ignore[reportArgumentType]
         frequency_penalty: float = Input(description="Frequency penalty", default=0.0),  # pyright: ignore[reportArgumentType]
-        stop_sequences: str | None = Input(
-            description="A comma-separated list of sequences to stop generation at. "
-            "For example, '<end>,<stop>' will stop generation at the first instance of "
-            "'<end>' or '<stop>'.",
-            default=None,
+        stop: list[str] = Input(
+            description="A list of sequences to stop generation at. "
+            "For example, [\"<end>\",\"<stop>\"] will stop generation at the first instance of "
+            "\"<end>\" or \"<stop>\".",
+            default=[],
         ),  # pyright: ignore[reportArgumentType]
         seed: int | None = Input(
             description="Random seed. Leave unspecified to randomize the seed.",
@@ -359,13 +359,10 @@ class Predictor(BasePredictor):
         logger.info("predict() commencing request_id=%s", request_id)
 
         top_k = -1 if (top_k or 0) == 0 else top_k
-        stop = stop_sequences.split(",") if stop_sequences else []
         stream_options = StreamOptions() if stream else None
 
         usage: UsageInfo | None = None
-        finish_reason: str | None = None
         responses: list[str] = []
-        responses_joiner: Callable[[list[str]], str]
 
         if messages:  # Chat completion API
             if prompt or system_prompt:
@@ -398,32 +395,33 @@ class Predictor(BasePredictor):
                 request_id=request_id,
             )
 
-            responses_joiner = json.dumps
-
             generator = await self.create_chat_completion(request)
             match generator:
                 case ChatCompletionResponse():
                     usage = generator.usage
-                    for choice in generator.choices:
-                        finish_reason = choice.finish_reason
-                        message_text = choice.message.model_dump_json(
-                            exclude_unset=True, exclude_none=True
-                        )
-                        responses.append(message_text)
-                        yield message_text  # type: ignore
+                    response_text = generator.model_dump_json(
+                        exclude_unset=True, exclude_none=True
+                    )
+                    responses.append(response_text)
+                    yield response_text  # type: ignore
                 case AsyncGenerator():
                     async for response in generator:
-                        usage = response.usage
-                        for choice in response.choices:
-                            finish_reason = choice.finish_reason
-                            delta_text = choice.delta.model_dump_json(
-                                exclude_unset=True, exclude_none=True
-                            )
-                            responses.append(delta_text)
-                            yield delta_text  # type: ignore
+                        if response.usage:
+                            usage = response.usage
+                        response_text = response.model_dump_json(
+                            exclude_unset=True, exclude_none=True
+                        )
+                        responses.append(response_text)
+                        yield response_text  # type: ignore
                 case ErrorResponse():
                     logger.error("%r", generator)
                     raise ResponseError(generator.model_dump_json())
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "response_text=%s",
+                    json.dumps(responses),
+                )
 
         elif prompt or system_prompt:  # Completion API
             if (
@@ -447,7 +445,7 @@ class Predictor(BasePredictor):
                     tokenizer=tokenizer,  # pyright: ignore[reportArgumentType]
                     model_config=model_config,
                 )
-                conversation, mm_data_future = parse_chat_messages_futures(
+                conversation, mm_data_future, mm_uuids = parse_chat_messages_futures(
                     messages=conversation,
                     model_config=model_config,
                     tokenizer=tokenizer,
@@ -471,7 +469,7 @@ class Predictor(BasePredictor):
                 mm_data = await mm_data_future
                 # CompletionRequest does not support multimodal data
                 if mm_data:
-                    logger.debug("mm_data %r", mm_data)
+                    logger.debug("mm_data %r, mm_uuids %r", mm_data, mm_uuids)
 
             request = CompletionRequest(
                 model=self.get_model_name(),
@@ -491,42 +489,50 @@ class Predictor(BasePredictor):
                 request_id=request_id,
             )
 
-            responses_joiner = "".join
-
+            finish_reason: str | None = None
             generator = await self.create_completion(request)
             match generator:
                 case CompletionResponse():
                     usage = generator.usage
-                    for choice in generator.choices:
-                        finish_reason = choice.finish_reason
+                    assert len(generator.choices) == 1, (
+                        "Expected exactly one output from generation request."
+                    )
+                    choice = generator.choices[0]
+                    finish_reason = choice.finish_reason
+                    choice_text = choice.text
+                    if choice_text:
+                        responses.append(choice_text)
+                        yield choice_text  # type: ignore
+                case AsyncGenerator():
+                    async for response in generator:
+                        if response.usage:
+                            usage = response.usage
+                        assert len(response.choices) == 1, (
+                            "Expected exactly one output from generation request."
+                        )
+                        choice = response.choices[0]
+                        if choice.finish_reason:
+                            finish_reason = choice.finish_reason
                         choice_text = choice.text
                         if choice_text:
                             responses.append(choice_text)
                             yield choice_text  # type: ignore
-                case AsyncGenerator():
-                    async for response in generator:
-                        usage = response.usage
-                        for choice in response.choices:
-                            finish_reason = choice.finish_reason
-                            choice_text = choice.text
-                            if choice_text:
-                                responses.append(choice_text)
-                                yield choice_text  # type: ignore
                 case ErrorResponse():
                     logger.error("%r", generator)
                     raise ResponseError(generator.model_dump_json())
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "finish_reason=%s response_text=%s",
+                    finish_reason,
+                    "".join(responses),
+                )
 
         else:  # Error
             error_message = "No messages or prompt inputs specified"
             logger.error("%s", error_message)
             raise ResponseError(error_message)
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "response_text=%s finish_reason=%s",
-                responses_joiner(responses),
-                finish_reason,
-            )
         logger.info("Generation took %.2fs", time.time() - start_time)
 
         if usage:
