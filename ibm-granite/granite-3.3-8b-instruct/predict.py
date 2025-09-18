@@ -12,8 +12,7 @@ import os
 import pathlib
 import time
 import typing
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
-from dataclasses import dataclass, field
+from collections.abc import AsyncGenerator, AsyncIterator
 
 import cog
 import torch
@@ -21,7 +20,7 @@ import torch
 from cog import AsyncConcatenateIterator, BasePredictor, Input, Path as CogPath
 from cog.coder import json_coder  # pylint: disable=unused-import # noqa: F401
 from openai.types.chat import ChatCompletionToolParam
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from vllm import (
     AsyncEngineArgs,
     AsyncLLMEngine,
@@ -38,10 +37,10 @@ from vllm.entrypoints.chat_utils import (
 )
 from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import (
+    ChatCompletionNamedToolChoiceParam,
     ChatCompletionRequest,
     ChatCompletionStreamResponse,
     ChatCompletionResponse,
-    ChatCompletionToolsParam,
     CompletionRequest,
     CompletionStreamResponse,
     CompletionResponse,
@@ -59,39 +58,27 @@ from vllm.entrypoints.openai.serving_models import (
 from vllm.utils import Counter
 
 
-class UserError(Exception):
-    pass
-
-
 class ResponseError(Exception):
     pass
 
 
-@dataclass
-class PredictorConfig:
+class PredictorConfig(BaseModel):
     """PredictorConfig is the configuration class for the Predictor."""
 
-    chat_template: str | None = field(default=None)
-    chat_template_content_format: ChatTemplateContentFormatOption = field(
+    model_config = ConfigDict(extra="allow")
+
+    chat_template: str | None = Field(default=None)
+    chat_template_content_format: ChatTemplateContentFormatOption = Field(
         default="auto"
     )
-    enable_log_requests: bool = field(default=False)
-    max_log_len: int | None = field(default=None)
-    enable_force_include_usage: bool = field(default=False)
-    enable_auto_tool_choice: bool = field(default=False)
-    tool_call_parser: str | None = field(default=None)
-    reasoning_parser: str = field(default="")
-    response_role: str = field(default="assistant")
-    engine_args: dict[str, typing.Any] = field(default_factory=dict)
-
-    def __post_init__(self):
-        if self.engine_args is None:
-            self.engine_args = {}
-        elif not isinstance(self.engine_args, dict):
-            raise UserError(
-                "Invalid predictor_config.json: engine_args must be "
-                "a valid JSON object that maps to a dictionary."
-            )
+    enable_log_requests: bool = Field(default=False)
+    max_log_len: int | None = Field(default=None)
+    enable_force_include_usage: bool = Field(default=False)
+    enable_auto_tool_choice: bool = Field(default=False)
+    tool_call_parser: str | None = Field(default=None)
+    reasoning_parser: str = Field(default="")
+    response_role: str = Field(default="assistant")
+    engine_args: dict[str, typing.Any] = Field(default_factory=dict)
 
 
 class ChatCompletionDocumentParam(typing.TypedDict, total=False):
@@ -113,6 +100,25 @@ def process_documents(
     if documents:
         return [{k: str(v) for k, v in document.items()} for document in documents]
     return None
+
+
+def process_tool_choice(
+    tool_choice: str | None,
+) -> (
+    ChatCompletionNamedToolChoiceParam
+    | typing.Literal["none", "auto", "required"]
+    | None
+):
+    """Convert string tool_choice value to the desired usable value."""
+    match tool_choice:
+        case "none" | "auto" | "required" | None:
+            return tool_choice
+        case _:
+            try:
+                return json.loads(tool_choice)
+            except json.JSONDecodeError:
+                logger.exception("Invalid tool_choice value")
+                return None
 
 
 def init_logger(name: str) -> logging.Logger:
@@ -155,15 +161,12 @@ class Predictor(BasePredictor):
         if self.resolved_chat_template:
             logger.debug("Using chat template from predictor_config.json")
 
-        engine_args = self.config.engine_args
-        if "model" not in engine_args:
-            engine_args["model"] = weights.resolve().as_posix()
-        if "dtype" not in engine_args:
-            engine_args["dtype"] = "auto"
-        if "tensor_parallel_size" not in engine_args:
-            engine_args["tensor_parallel_size"] = max(torch.cuda.device_count(), 1)
+        engine_args = AsyncEngineArgs(**self.config.engine_args)
+        if "model" not in self.config.engine_args:
+            engine_args.model = weights.resolve().as_posix()
+        if "tensor_parallel_size" not in self.config.engine_args:
+            engine_args.tensor_parallel_size = max(torch.cuda.device_count(), 1)
 
-        engine_args = AsyncEngineArgs(**engine_args)
         logger.debug("AsyncEngineArgs engine_args=%s", engine_args)
 
         try:
@@ -287,6 +290,11 @@ class Predictor(BasePredictor):
             description="Tools for request. Passed to the chat template.",
             default=[],
         ),  # pyright: ignore[reportArgumentType]
+        tool_choice: str | None = Input(
+            description="Tool choice for request. "
+            "If the choice is a specific function, this should be specified as a JSON string.",
+            default=None,
+        ),  # pyright: ignore[reportArgumentType]
         system_prompt: str | None = Input(
             description="Completion API system prompt. "
             "The chat template provides a good default.",
@@ -331,11 +339,11 @@ class Predictor(BasePredictor):
         ),  # pyright: ignore[reportArgumentType]
         presence_penalty: float = Input(description="Presence penalty", default=0.0),  # pyright: ignore[reportArgumentType]
         frequency_penalty: float = Input(description="Frequency penalty", default=0.0),  # pyright: ignore[reportArgumentType]
-        stop_sequences: str | None = Input(
-            description="A comma-separated list of sequences to stop generation at. "
-            "For example, '<end>,<stop>' will stop generation at the first instance of "
-            "'<end>' or '<stop>'.",
-            default=None,
+        stop: list[str] = Input(
+            description="A list of sequences to stop generation at. "
+            "For example, [\"<end>\",\"<stop>\"] will stop generation at the first instance of "
+            "\"<end>\" or \"<stop>\".",
+            default=[],
         ),  # pyright: ignore[reportArgumentType]
         seed: int | None = Input(
             description="Random seed. Leave unspecified to randomize the seed.",
@@ -351,13 +359,10 @@ class Predictor(BasePredictor):
         logger.info("predict() commencing request_id=%s", request_id)
 
         top_k = -1 if (top_k or 0) == 0 else top_k
-        stop = stop_sequences.split(",") if stop_sequences else []
         stream_options = StreamOptions() if stream else None
 
         usage: UsageInfo | None = None
-        finish_reason: str | None = None
         responses: list[str] = []
-        responses_joiner: Callable[[list[str]], str]
 
         if messages:  # Chat completion API
             if prompt or system_prompt:
@@ -369,9 +374,8 @@ class Predictor(BasePredictor):
             request = ChatCompletionRequest(
                 model=self.get_model_name(),
                 messages=messages,  # pyright: ignore[reportArgumentType]
-                tools=[ChatCompletionToolsParam.model_validate(tool) for tool in tools]
-                if tools
-                else None,
+                tools=tools or None,  # pyright: ignore[reportArgumentType]
+                tool_choice=process_tool_choice(tool_choice),
                 documents=process_documents(documents),
                 chat_template=chat_template,
                 add_generation_prompt=add_generation_prompt,
@@ -391,32 +395,33 @@ class Predictor(BasePredictor):
                 request_id=request_id,
             )
 
-            responses_joiner = json.dumps
-
             generator = await self.create_chat_completion(request)
             match generator:
                 case ChatCompletionResponse():
                     usage = generator.usage
-                    for choice in generator.choices:
-                        finish_reason = choice.finish_reason
-                        message_text = choice.message.model_dump_json(
-                            exclude_unset=True, exclude_none=True
-                        )
-                        responses.append(message_text)
-                        yield message_text  # type: ignore
+                    response_text = generator.model_dump_json(
+                        exclude_unset=True, exclude_none=True
+                    )
+                    responses.append(response_text)
+                    yield response_text  # type: ignore
                 case AsyncGenerator():
                     async for response in generator:
-                        usage = response.usage
-                        for choice in response.choices:
-                            finish_reason = choice.finish_reason
-                            delta_text = choice.delta.model_dump_json(
-                                exclude_unset=True, exclude_none=True
-                            )
-                            responses.append(delta_text)
-                            yield delta_text  # type: ignore
+                        if response.usage:
+                            usage = response.usage
+                        response_text = response.model_dump_json(
+                            exclude_unset=True, exclude_none=True
+                        )
+                        responses.append(response_text)
+                        yield response_text  # type: ignore
                 case ErrorResponse():
                     logger.error("%r", generator)
                     raise ResponseError(generator.model_dump_json())
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "response_text=%s",
+                    json.dumps(responses),
+                )
 
         elif prompt or system_prompt:  # Completion API
             if (
@@ -440,7 +445,7 @@ class Predictor(BasePredictor):
                     tokenizer=tokenizer,  # pyright: ignore[reportArgumentType]
                     model_config=model_config,
                 )
-                conversation, mm_data_future = parse_chat_messages_futures(
+                conversation, mm_data_future, mm_uuids = parse_chat_messages_futures(
                     messages=conversation,
                     model_config=model_config,
                     tokenizer=tokenizer,
@@ -464,7 +469,7 @@ class Predictor(BasePredictor):
                 mm_data = await mm_data_future
                 # CompletionRequest does not support multimodal data
                 if mm_data:
-                    logger.debug("mm_data %r", mm_data)
+                    logger.debug("mm_data %r, mm_uuids %r", mm_data, mm_uuids)
 
             request = CompletionRequest(
                 model=self.get_model_name(),
@@ -484,42 +489,50 @@ class Predictor(BasePredictor):
                 request_id=request_id,
             )
 
-            responses_joiner = "".join
-
+            finish_reason: str | None = None
             generator = await self.create_completion(request)
             match generator:
                 case CompletionResponse():
                     usage = generator.usage
-                    for choice in generator.choices:
-                        finish_reason = choice.finish_reason
+                    assert len(generator.choices) == 1, (
+                        "Expected exactly one output from generation request."
+                    )
+                    choice = generator.choices[0]
+                    finish_reason = choice.finish_reason
+                    choice_text = choice.text
+                    if choice_text:
+                        responses.append(choice_text)
+                        yield choice_text  # type: ignore
+                case AsyncGenerator():
+                    async for response in generator:
+                        if response.usage:
+                            usage = response.usage
+                        assert len(response.choices) == 1, (
+                            "Expected exactly one output from generation request."
+                        )
+                        choice = response.choices[0]
+                        if choice.finish_reason:
+                            finish_reason = choice.finish_reason
                         choice_text = choice.text
                         if choice_text:
                             responses.append(choice_text)
                             yield choice_text  # type: ignore
-                case AsyncGenerator():
-                    async for response in generator:
-                        usage = response.usage
-                        for choice in response.choices:
-                            finish_reason = choice.finish_reason
-                            choice_text = choice.text
-                            if choice_text:
-                                responses.append(choice_text)
-                                yield choice_text  # type: ignore
                 case ErrorResponse():
                     logger.error("%r", generator)
                     raise ResponseError(generator.model_dump_json())
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "finish_reason=%s response_text=%s",
+                    finish_reason,
+                    "".join(responses),
+                )
 
         else:  # Error
             error_message = "No messages or prompt inputs specified"
             logger.error("%s", error_message)
             raise ResponseError(error_message)
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "response_text=%s finish_reason=%s",
-                responses_joiner(responses),
-                finish_reason,
-            )
         logger.info("Generation took %.2fs", time.time() - start_time)
 
         if usage:
@@ -650,18 +663,9 @@ class Predictor(BasePredictor):
             if not predictor_config_path.exists():
                 predictor_config_path = None
         if predictor_config_path:
-            try:
-                logger.debug(
-                    "Loading predictor_config.json path=%s", predictor_config_path
-                )
-                with predictor_config_path.open(
-                    mode="r",
-                    encoding="utf-8",
-                ) as f:
-                    config = json.load(f)
-                config = PredictorConfig(**config)
-            except Exception as e:
-                raise UserError(f"Invalid predictor_config.json: {e}") from e
+            logger.debug("Loading predictor_config.json path=%s", predictor_config_path)
+            json_data = predictor_config_path.read_text(encoding="utf-8")
+            config = PredictorConfig.model_validate_json(json_data)
         else:
             config = PredictorConfig()
 

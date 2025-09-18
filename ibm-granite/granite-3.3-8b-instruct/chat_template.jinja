@@ -24,7 +24,7 @@
     {%- endif %}
     {%- set allDocuments.rendered = allDocuments.rendered + '<|start_of_role|>document {"document_id": "' %}
     {%- if 'doc_id' in document %}
-        {%- set allDocuments.rendered = allDocuments.rendered + document['doc_id'] %}
+        {%- set allDocuments.rendered = allDocuments.rendered + document['doc_id'] | string %}
     {%- elif 'title' in document %}
         {%- set allDocuments.rendered = allDocuments.rendered + document['title'] %}
     {%- else %}
@@ -67,7 +67,7 @@
         {%- endif %}
         {%- set allDocuments.rendered = allDocuments.rendered + '<|start_of_role|>document {"document_id": "' %}
         {%- if 'doc_id' in message %}
-            {%- set allDocuments.rendered = allDocuments.rendered + message['doc_id'] %}
+            {%- set allDocuments.rendered = allDocuments.rendered + message['doc_id'] | string %}
         {%- elif 'title' in message %}
             {%- set allDocuments.rendered = allDocuments.rendered + message['title'] %}
         {%- else %}
