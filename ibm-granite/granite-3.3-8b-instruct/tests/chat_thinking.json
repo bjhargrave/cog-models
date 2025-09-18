@@ -8,7 +8,7 @@
     "chat_template_kwargs": {
         "thinking": true
     },
-    "max_tokens": 4000,
+    "max_completion_tokens": 4000,
     "min_tokens": 200,
     "temperature": 0
 }
