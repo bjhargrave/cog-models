@@ -37,6 +37,7 @@ from vllm.entrypoints.chat_utils import (
 )
 from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.protocol import (
+    AnyResponseFormat,
     ChatCompletionNamedToolChoiceParam,
     ChatCompletionRequest,
     ChatCompletionStreamResponse,
@@ -56,6 +57,34 @@ from vllm.entrypoints.openai.serving_models import (
     OpenAIServingModels,
 )
 from vllm.utils import Counter
+
+
+def init_logger(name: str) -> logging.Logger:
+    """Create a Logger for the specified name.
+
+    Args:
+        name (str): The name for the Logger.
+
+    Returns:
+        logging.Logger: A configured Logger for the specified name.
+    """
+    _logger = logging.Logger(name)
+
+    _logger.setLevel(os.environ.get("PREDICTOR_LOG_LEVEL", "DEBUG").upper())
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter(
+            "%(levelname)s %(asctime)s [%(filename)s:%(lineno)d] %(message)s",
+            datefmt="%m-%d %H:%M:%S",
+        )
+    )
+    handler.setLevel(logging.DEBUG)
+    _logger.addHandler(handler)
+
+    return _logger
+
+
+logger = init_logger(__name__)
 
 
 class ResponseError(Exception):
@@ -78,6 +107,7 @@ class PredictorConfig(BaseModel):
     tool_call_parser: str | None = Field(default=None)
     reasoning_parser: str = Field(default="")
     response_role: str = Field(default="assistant")
+    log_error_stack: bool = Field(default=envs.VLLM_SERVER_DEV_MODE)
     engine_args: dict[str, typing.Any] = Field(default_factory=dict)
 
 
@@ -121,32 +151,15 @@ def process_tool_choice(
                 return None
 
 
-def init_logger(name: str) -> logging.Logger:
-    """Create a Logger for the specified name.
-
-    Args:
-        name (str): The name for the Logger.
-
-    Returns:
-        logging.Logger: A configured Logger for the specified name.
-    """
-    _logger = logging.Logger(name)
-
-    _logger.setLevel(os.environ.get("PREDICTOR_LOG_LEVEL", "DEBUG").upper())
-    handler = logging.StreamHandler()
-    handler.setFormatter(
-        logging.Formatter(
-            "%(levelname)s %(asctime)s [%(filename)s:%(lineno)d] %(message)s",
-            datefmt="%m-%d %H:%M:%S",
-        )
-    )
-    handler.setLevel(logging.DEBUG)
-    _logger.addHandler(handler)
-
-    return _logger
+class JsonSchemaResponseFormat(typing.TypedDict, total=False):
+    name: typing.Required[str]
+    description: str | None
+    schema: dict[str, typing.Any] | None
 
 
-logger = init_logger(__name__)
+class ResponseFormat(typing.TypedDict, total=False):
+    type: typing.Required[typing.Literal["text", "json_object", "json_schema"]]
+    json_schema: JsonSchemaResponseFormat | None
 
 
 # pylint: disable=invalid-overridden-method, signature-differs, abstract-method, too-many-instance-attributes
@@ -240,6 +253,7 @@ class Predictor(BasePredictor):
                 enable_auto_tools=self.config.enable_auto_tool_choice,
                 tool_parser=self.config.tool_call_parser,
                 reasoning_parser=self.config.reasoning_parser,
+                log_error_stack=self.config.log_error_stack,
             )
             if "generate" in supported_tasks
             else None
@@ -251,6 +265,7 @@ class Predictor(BasePredictor):
                 self.serving_models,
                 request_logger=request_logger,
                 enable_force_include_usage=self.config.enable_force_include_usage,
+                log_error_stack=self.config.log_error_stack,
             )
             if "generate" in supported_tasks
             else None
@@ -260,7 +275,9 @@ class Predictor(BasePredictor):
 
         self._testing = True
         generator = self.predict(
-            **dict(self._defaults, max_tokens=50, prompt="What is your name?")
+            **dict(
+                self._defaults, max_completion_tokens=50, prompt="What is your name?"
+            )
         )
         test_output = "".join([tok async for tok in generator])  # type: ignore
         self._testing = False
@@ -295,6 +312,10 @@ class Predictor(BasePredictor):
             "If the choice is a specific function, this should be specified as a JSON string.",
             default=None,
         ),  # pyright: ignore[reportArgumentType]
+        response_format: ResponseFormat | None = Input(
+            description="An object specifying the format that the model must output.",
+            default=None,
+        ),  # pyright: ignore[reportArgumentType]
         system_prompt: str | None = Input(
             description="Completion API system prompt. "
             "The chat template provides a good default.",
@@ -317,9 +338,15 @@ class Predictor(BasePredictor):
             description="The minimum number of tokens the model should generate as output.",
             default=0,
         ),  # pyright: ignore[reportArgumentType]
-        max_tokens: int = Input(
-            description="The maximum number of tokens the model should generate as output.",
-            default=512,
+        max_tokens: int | None = Input(
+            description="max_tokens is deprecated in favor of the max_completion_tokens field.",
+            default=None,
+            deprecated=True,
+        ),  # pyright: ignore[reportArgumentType]
+        max_completion_tokens: int | None = Input(
+            description="An upper bound for the number of tokens that can be generated for a completion, "
+            "including visible output tokens and reasoning tokens.",
+            default=None,
         ),  # pyright: ignore[reportArgumentType]
         temperature: float = Input(
             description="The value used to modulate the next token probabilities.",
@@ -341,8 +368,8 @@ class Predictor(BasePredictor):
         frequency_penalty: float = Input(description="Frequency penalty", default=0.0),  # pyright: ignore[reportArgumentType]
         stop: list[str] = Input(
             description="A list of sequences to stop generation at. "
-            "For example, [\"<end>\",\"<stop>\"] will stop generation at the first instance of "
-            "\"<end>\" or \"<stop>\".",
+            'For example, ["<end>","<stop>"] will stop generation at the first instance of '
+            '"<end>" or "<stop>".',
             default=[],
         ),  # pyright: ignore[reportArgumentType]
         seed: int | None = Input(
@@ -360,6 +387,8 @@ class Predictor(BasePredictor):
 
         top_k = -1 if (top_k or 0) == 0 else top_k
         stream_options = StreamOptions() if stream else None
+        if max_completion_tokens is None:
+            max_completion_tokens = max_tokens
 
         usage: UsageInfo | None = None
         responses: list[str] = []
@@ -377,6 +406,7 @@ class Predictor(BasePredictor):
                 tools=tools or None,  # pyright: ignore[reportArgumentType]
                 tool_choice=process_tool_choice(tool_choice),
                 documents=process_documents(documents),
+                response_format=typing.cast(AnyResponseFormat, response_format),
                 chat_template=chat_template,
                 add_generation_prompt=add_generation_prompt,
                 chat_template_kwargs=chat_template_kwargs,
@@ -385,7 +415,7 @@ class Predictor(BasePredictor):
                 top_p=top_p,
                 temperature=temperature,
                 min_tokens=min_tokens,
-                max_completion_tokens=max_tokens,
+                max_completion_tokens=max_completion_tokens,
                 stop=stop,
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
@@ -471,15 +501,18 @@ class Predictor(BasePredictor):
                 if mm_data:
                     logger.debug("mm_data %r, mm_uuids %r", mm_data, mm_uuids)
 
+            if max_completion_tokens is None:
+                max_completion_tokens = 512
             request = CompletionRequest(
                 model=self.get_model_name(),
                 prompt=request_prompt,
+                response_format=typing.cast(AnyResponseFormat, response_format),
                 n=1,
                 top_k=top_k,
                 top_p=top_p,
                 temperature=temperature,
                 min_tokens=min_tokens,
-                max_tokens=max_tokens,
+                max_tokens=max_completion_tokens,
                 stop=stop,
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,

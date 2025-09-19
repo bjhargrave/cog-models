@@ -6,6 +6,7 @@
     "enable_auto_tool_choice": true,
     "tool_call_parser": "granite",
     "reasoning_parser": "granite",
+    "log_error_stack": true,
     "engine_args": {
         "served_model_name": "ibm-granite/granite-3.3-8b-instruct",
         "trust_remote_code": false
