@@ -1,0 +1,12 @@
+[project]
+name = "granite-4.0-h-small"
+version = "0.1.0"
+description = "Dependencies for predict.py"
+dependencies = [
+    "vllm[flashinfer]==0.10.2",
+]
+requires-python = "~= 3.12.0"
+
+# This needs to match the CUDA version in cog.yaml
+[tool.uv.pip]
+torch-backend = "cu128"
