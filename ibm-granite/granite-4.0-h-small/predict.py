@@ -350,7 +350,7 @@ class Predictor(BasePredictor):
         ),  # pyright: ignore[reportArgumentType]
         temperature: float = Input(
             description="The value used to modulate the next token probabilities.",
-            default=0.6,
+            default=0.0,
         ),  # pyright: ignore[reportArgumentType]
         top_p: float = Input(
             description="A probability threshold for generating the output. If < 1.0, only keep "

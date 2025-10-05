@@ -2,3 +2,6 @@
 *.bak
 venv/
 .venv/
+weights/
+!weights/.gitignore
+sparse_logs/
