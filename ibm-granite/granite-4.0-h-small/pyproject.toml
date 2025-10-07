@@ -1,6 +1,6 @@
 [project]
 name = "granite-4.0-h-small"
-version = "1.0.1"
+version = "1.0.2"
 description = "Dependencies for predict.py"
 dependencies = [
     "vllm[flashinfer]==0.10.2",

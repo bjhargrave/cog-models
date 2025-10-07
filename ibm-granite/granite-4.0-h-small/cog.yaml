@@ -4,7 +4,7 @@
 # Reference: https://cog.run/yaml
 
 # image name:version
-image: "r8.im/ibm-granite/granite-4.0-h-small:1.0.1"
+image: "r8.im/ibm-granite/granite-4.0-h-small:1.0.2"
 
 build:
   # Enable new Cog runtime implementation
