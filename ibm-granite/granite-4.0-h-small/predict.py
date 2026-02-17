@@ -430,7 +430,8 @@ class Predictor(BasePredictor):
                 case ChatCompletionResponse():
                     usage = generator.usage
                     response_text = generator.model_dump_json(
-                        exclude_unset=True, exclude_none=True
+                        exclude_defaults=True,
+                        exclude_none=True,
                     )
                     responses.append(response_text)
                     yield response_text  # type: ignore
@@ -439,7 +440,8 @@ class Predictor(BasePredictor):
                         if response.usage:
                             usage = response.usage
                         response_text = response.model_dump_json(
-                            exclude_unset=True, exclude_none=True
+                            exclude_defaults=True,
+                            exclude_none=True,
                         )
                         responses.append(response_text)
                         yield response_text  # type: ignore
