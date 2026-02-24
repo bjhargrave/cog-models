@@ -364,8 +364,9 @@ class Predictor(BasePredictor):
             "(top-k filtering).",
             default=50,
         ),  # pyright: ignore[reportArgumentType]
-        presence_penalty: float = Input(description="Presence penalty", default=0.0),  # pyright: ignore[reportArgumentType]
-        frequency_penalty: float = Input(description="Frequency penalty", default=0.0),  # pyright: ignore[reportArgumentType]
+        presence_penalty: float | None = Input(description="Presence penalty", default=None),  # pyright: ignore[reportArgumentType]
+        frequency_penalty: float | None = Input(description="Frequency penalty", default=None),  # pyright: ignore[reportArgumentType]
+        repetition_penalty: float | None = Input(description="Repetition penalty", default=None),  # pyright: ignore[reportArgumentType]
         stop: list[str] = Input(
             description="A list of sequences to stop generation at. "
             'For example, ["<end>","<stop>"] will stop generation at the first instance of '
@@ -419,6 +420,7 @@ class Predictor(BasePredictor):
                 stop=stop,
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
+                repetition_penalty=repetition_penalty,
                 seed=seed,
                 stream=stream,
                 stream_options=stream_options,
@@ -518,6 +520,7 @@ class Predictor(BasePredictor):
                 stop=stop,
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
+                repetition_penalty=repetition_penalty,
                 seed=seed,
                 stream=stream,
                 stream_options=stream_options,
