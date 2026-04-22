@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Configuration for Cog ⚙️
+# Reference: https://cog.run/yaml
+
+# image name:version
+image: "r8.im/ibm-granite/granite-4.1-8b:1.0.0"
+
+build:
+  sdk_version: "0.18.0"
+  # set to true if your model requires a GPU
+  gpu: true
+  # This needs to match the CUDA version in pyproject.toml
+  cuda: "12.8"
+  # python version in the form '3.11' or '3.11.4'
+  python_version: "3.12"
+  run:
+    # Install torch from the pytorch index
+    - --mount=type=cache,target=/root/.cache/uv --mount=type=bind,source=requirements.txt,target=/tmp/requirements.txt uv pip install --cache-dir /root/.cache/uv --requirements /tmp/requirements.txt --torch-backend=cu128 --link-mode=copy
+
+# predict.py defines how predictions are run on your model
+predict: "predict.py:Predictor"
+
+#concurrency capabilities of the model.
+concurrency:
+  max: 3

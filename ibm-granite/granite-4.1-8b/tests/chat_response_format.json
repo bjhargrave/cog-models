@@ -1,0 +1,30 @@
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "What weighs more a pound of bricks or a pound of feathers?"
+        }
+    ],
+    "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "AnswerWithJustification",
+            "description": "An answer to the user question along with justification for the answer.",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "type": "string"
+                    },
+                    "justification": {
+                        "description": "A justification for the answer.",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "answer"
+                ]
+            }
+        }
+    }
+}

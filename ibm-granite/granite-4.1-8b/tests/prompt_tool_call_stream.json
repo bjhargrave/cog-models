@@ -1,0 +1,32 @@
+{
+    "prompt": "What is the weather like in Boston today?",
+    "tools": [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_current_weather",
+                "description": "Get the current weather in a given location",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location": {
+                            "description": "The city, e.g. San Francisco, CA",
+                            "type": "string"
+                        },
+                        "unit": {
+                            "enum": [
+                                "celsius",
+                                "fahrenheit"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "location"
+                    ]
+                }
+            }
+        }
+    ],
+    "stream": true
+}

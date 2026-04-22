@@ -1,0 +1,9 @@
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "What is Pi?"
+        }
+    ],
+    "repetition_penalty": 1.05
+}

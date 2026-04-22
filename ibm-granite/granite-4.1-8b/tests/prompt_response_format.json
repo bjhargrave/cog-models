@@ -1,0 +1,6 @@
+{
+    "prompt": "What weighs more a pound of bricks or a pound of feathers? Reply with a JSON object containing the answer.",
+    "response_format": {
+        "type": "json_object"
+    }
+}
