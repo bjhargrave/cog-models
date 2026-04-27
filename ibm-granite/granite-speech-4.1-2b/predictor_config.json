@@ -1,0 +1,16 @@
+{
+    "chat_template_content_format": "string",
+    "enable_log_requests": true,
+    "enable_force_include_usage": true,
+    "log_error_stack": true,
+    "engine_args": {
+        "served_model_name": "ibm-granite/granite-speech-4.1-2b",
+        "gpu_memory_utilization": 0.95,
+        "limit_mm_per_prompt": {
+            "audio": 1,
+            "image": 0,
+            "video": 0
+        },
+        "trust_remote_code": false
+    }
+}
