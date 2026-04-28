@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Exclude Python cache files
+__pycache__
+.mypy_cache
+.pytest_cache
+.ruff_cache
