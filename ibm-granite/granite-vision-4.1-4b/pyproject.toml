@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "granite-vision-4.1-4b"
+version = "1.0.0"
+description = "Dependencies for predict.py"
+dependencies = [
+     #"vllm @ git+https://github.com/vllm-project/vllm.git@bde0efdbb78a57dc10375e8d0686cf862332192c"
+     "vllm==0.20.1"
+]
+requires-python = "~= 3.13.0"
+
+# This needs to match the CUDA version in cog.yaml
+[tool.uv.pip]
+torch-backend = "cu130"
