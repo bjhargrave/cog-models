@@ -632,8 +632,8 @@ class Predictor(BasePredictor):
                 usage.total_tokens,
             )
             if not self._testing:
-                self.record_metric("input_token_count", usage.prompt_tokens)
-                self.record_metric("output_token_count", usage.completion_tokens)
+                self.record_metric("token_input_count", usage.prompt_tokens)
+                self.record_metric("token_output_count", usage.completion_tokens)
 
         logger.info("predict() complete")
 
