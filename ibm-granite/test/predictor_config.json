@@ -1,0 +1,12 @@
+{
+    "chat_template_content_format": "string",
+    "enable_log_requests": true,
+    "log_error_stack": true,
+    "engine_args": {
+        "served_model_name": "ibm-granite/granite-embedding-small-english-r2",
+        "max_model_len": "8192",
+        "trust_remote_code": false,
+        "runner": "pooling",
+        "convert": "auto"
+    }
+}
