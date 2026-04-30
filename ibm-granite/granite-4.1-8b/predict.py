@@ -3,7 +3,7 @@
 # Prediction interface for Cog ⚙️
 # https://cog.run/python
 
-# pylint: disable=missing-module-docstring, missing-class-docstring, no-name-in-module, attribute-defined-outside-init, wrong-import-position
+# pylint: disable=missing-module-docstring, missing-class-docstring, no-name-in-module, attribute-defined-outside-init
 
 import asyncio
 import inspect
@@ -33,7 +33,6 @@ from vllm.entrypoints.chat_utils import (
     ChatTemplateContentFormatOption,
     CustomChatCompletionMessageParam,
     load_chat_template,
-    parse_chat_messages,
 )
 from vllm.entrypoints.logger import RequestLogger
 from vllm.entrypoints.openai.chat_completion.protocol import (
@@ -61,11 +60,6 @@ from vllm.entrypoints.openai.models.protocol import (
 )
 from vllm.entrypoints.openai.models.serving import OpenAIServingModels
 from vllm.entrypoints.serve.render.serving import OpenAIServingRender
-from vllm.renderers.hf import (
-    resolve_chat_template_content_format,
-    safe_apply_chat_template,
-)
-from vllm.tokenizers.hf import HfTokenizer
 from vllm.utils.counter import Counter
 from vllm.v1.engine.async_llm import AsyncLLM
 
@@ -312,15 +306,14 @@ class Predictor(BasePredictor):
 
         self.request_counter = Counter(1)
 
-        self._testing = True
         generator = self.predict(
             **dict(
                 self._defaults, max_completion_tokens=50, prompt="What is your name?"
             )
         )
         test_output = "".join([tok async for tok in generator])  # type: ignore
-        self._testing = False
         logger.debug("Test prediction output test_output=%s", test_output)
+
         logger.info("setup() complete")
 
     async def predict(  # pylint: disable=invalid-overridden-method, arguments-differ, too-many-arguments, too-many-positional-arguments, too-many-locals
@@ -432,16 +425,37 @@ class Predictor(BasePredictor):
         if max_completion_tokens is None:
             max_completion_tokens = max_tokens
 
-        usage: UsageInfo | None = None
-        responses: list[str] = []
-
-        if messages:  # Chat completion API
-            if prompt or system_prompt:
+        chat_completion = bool(messages)
+        if prompt or system_prompt:
+            if chat_completion:
                 logger.warning(
                     "Mutually exclusive messages and prompt/system prompt are specified. "
                     "Only messages will be used."
                 )
+            else:
+                messages = []  # new list
+                if system_prompt:
+                    messages.append(
+                        CustomChatCompletionMessageParam(
+                            role="system", content=system_prompt
+                        )
+                    )
+                if prompt and (system_prompt or not prompt.lstrip().startswith("<|start_of_role|>")):
+                    messages.append(
+                        CustomChatCompletionMessageParam(
+                            role="user", content=prompt
+                        )
+                    )
+        elif not chat_completion:
+            error_message = "No messages or prompt inputs specified"
+            logger.error("%s", error_message)
+            raise ResponseError(error_message)
 
+        usage: UsageInfo | None = None
+        responses: list[str] = []
+        finish_reason: str | None = None
+
+        if messages:  # Use chat completion API
             request = ChatCompletionRequest(
                 model=self.serving_models.model_name(),
                 messages=messages,  # pyright: ignore[reportArgumentType]
@@ -468,7 +482,6 @@ class Predictor(BasePredictor):
                 request_id=request_id,
             )
 
-            finish_reason: str | None = None
             generator = await self.create_chat_completion(request)
             match generator:
                 case ChatCompletionResponse():
@@ -478,9 +491,14 @@ class Predictor(BasePredictor):
                     )
                     choice = generator.choices[0]
                     finish_reason = choice.finish_reason
-                    response_text = generator.model_dump_json()
-                    responses.append(response_text)
-                    yield response_text  # type: ignore
+                    response_text = (
+                        generator.model_dump_json()
+                        if chat_completion
+                        else choice.message.content
+                    )
+                    if response_text:
+                        responses.append(response_text)
+                        yield response_text  # type: ignore
                 case AsyncGenerator():
                     async for response in generator:
                         if not finish_reason:
@@ -492,74 +510,24 @@ class Predictor(BasePredictor):
                             choice = response.choices[0]
                             if choice.finish_reason:
                                 finish_reason = choice.finish_reason
-                            response_text = response.model_dump_json()
-                            responses.append(response_text)
-                            yield response_text  # type: ignore
+                            response_text = (
+                                response.model_dump_json()
+                                if chat_completion
+                                else choice.delta.content
+                            )
+                            if response_text:
+                                responses.append(response_text)
+                                yield response_text  # type: ignore
                 case ErrorResponse():
                     logger.error("%r", generator)
                     raise ResponseError(generator.model_dump_json())
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "finish_reason=%s response_text=%s",
-                    finish_reason,
-                    json.dumps(responses),
-                )
-
-        elif prompt or system_prompt:  # Completion API
-            if (
-                not system_prompt
-                and prompt
-                and prompt.lstrip().startswith("<|start_of_role|>")
-            ):
-                request_prompt = prompt
-            else:
-                conversation = []
-                if system_prompt:
-                    conversation.append({"role": "system", "content": system_prompt})
-                if prompt:
-                    conversation.append({"role": "user", "content": prompt})
-
-                tokenizer = typing.cast(
-                    HfTokenizer, self.serving_render.renderer.tokenizer
-                )
-                model_config = self.serving_models.model_config
-                resolved_content_format = resolve_chat_template_content_format(
-                    chat_template=chat_template or self.resolved_chat_template,
-                    tools=tools or None,  # pyright: ignore[reportArgumentType]
-                    given_format=self.config.chat_template_content_format,
-                    tokenizer=tokenizer,
-                    model_config=model_config,
-                )
-                conversation, mm_data, mm_uuids = parse_chat_messages(
-                    messages=conversation,
-                    model_config=model_config,
-                    content_format=resolved_content_format,
-                )
-                _chat_template_kwargs: dict[str, typing.Any] = {
-                    "chat_template": chat_template or self.resolved_chat_template,
-                    "add_generation_prompt": add_generation_prompt,
-                    "tools": tools or None,
-                    "documents": process_documents(documents),
-                }
-                _chat_template_kwargs.update(chat_template_kwargs)
-
-                request_prompt = safe_apply_chat_template(
-                    model_config=model_config,
-                    tokenizer=tokenizer,
-                    conversation=conversation,
-                    **_chat_template_kwargs,
-                )
-
-                # CompletionRequest does not support multimodal data
-                if mm_data:
-                    logger.debug("mm_data %r, mm_uuids %r", mm_data, mm_uuids)
-
+        else:  # Completion API for an already formatted prompt
             if max_completion_tokens is None:
                 max_completion_tokens = 512
             request = CompletionRequest(
                 model=self.serving_models.model_name(),
-                prompt=request_prompt,
+                prompt=prompt,
                 response_format=typing.cast(AnyResponseFormat, response_format),
                 n=1,
                 top_k=top_k,
@@ -577,7 +545,6 @@ class Predictor(BasePredictor):
                 request_id=request_id,
             )
 
-            finish_reason: str | None = None
             generator = await self.create_completion(request)
             match generator:
                 case CompletionResponse():
@@ -610,17 +577,12 @@ class Predictor(BasePredictor):
                     logger.error("%r", generator)
                     raise ResponseError(generator.model_dump_json())
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "finish_reason=%s response_text=%s",
-                    finish_reason,
-                    "".join(responses),
-                )
-
-        else:  # Error
-            error_message = "No messages or prompt inputs specified"
-            logger.error("%s", error_message)
-            raise ResponseError(error_message)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "finish_reason=%s response_text=%s",
+                finish_reason,
+                json.dumps(responses) if chat_completion else "".join(responses),
+            )
 
         logger.info("Generation took %.2fs", time.time() - start_time)
 
@@ -631,17 +593,16 @@ class Predictor(BasePredictor):
                 usage.completion_tokens,
                 usage.total_tokens,
             )
-            if not self._testing:
-                self.record_metric("token_input_count", usage.prompt_tokens)
-                self.record_metric("token_output_count", usage.completion_tokens)
+            self.record_metric("token_input_count", usage.prompt_tokens)
+            self.record_metric("token_output_count", usage.completion_tokens)
 
-        logger.info("predict() complete")
+        logger.info("predict() completed request_id=%s", request_id)
 
     def completion(self) -> OpenAIServingCompletion:
         """Return completion handler"""
         handler = self.serving_completion
         assert handler is not None, (
-            f"Completion API not supported by model {self.serving_models.model_name()}"
+            f"generate task is not supported by model {self.serving_models.model_name()}"
         )
         return handler
 
@@ -683,7 +644,7 @@ class Predictor(BasePredictor):
         """Return chat completion handler"""
         handler = self.serving_chat
         assert handler is not None, (
-            f"Chat Completion API not supported by model {self.serving_models.model_name()}"
+            f"generate task is not supported by model {self.serving_models.model_name()}"
         )
         return handler
 
