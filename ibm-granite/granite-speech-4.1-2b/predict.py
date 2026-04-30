@@ -3,7 +3,7 @@
 # Prediction interface for Cog ⚙️
 # https://cog.run/python
 
-# pylint: disable=missing-module-docstring, missing-class-docstring, no-name-in-module, attribute-defined-outside-init, wrong-import-position
+# pylint: disable=missing-module-docstring, missing-class-docstring, no-name-in-module, attribute-defined-outside-init
 
 import asyncio
 import base64
@@ -243,6 +243,7 @@ class Predictor(BasePredictor):
         )
         test_output = "".join([tok async for tok in generator])  # type: ignore
         logger.debug("Test prediction output test_output=%s", test_output)
+
         logger.info("setup() complete")
 
     def to_data_uri(self, path: CogPath | str, media_type: str) -> str:
@@ -358,15 +359,14 @@ class Predictor(BasePredictor):
         if max_completion_tokens is None:
             max_completion_tokens = max_tokens
 
-        chat_completion = True
+        chat_completion = bool(messages)
         if prompt or system_prompt or audio:
-            if messages:
+            if chat_completion:
                 logger.warning(
                     "Mutually exclusive messages and prompt/system prompt/audio are specified. "
                     "Only messages will be used."
                 )
             else:
-                chat_completion = False
                 messages = []  # new list
                 if system_prompt:
                     messages.append(
@@ -381,7 +381,7 @@ class Predictor(BasePredictor):
                     )
                 if audio:
                     mm_config = self.engine.vllm_config.model_config.multimodal_config
-                    audio_limit = (
+                    mm_limit = (
                         mm_config.get_limit_per_prompt("audio")
                         if mm_config
                         else sys.maxsize
@@ -392,7 +392,7 @@ class Predictor(BasePredictor):
                             audio_url=AudioURL(url=self.to_data_uri(item, "audio/wav")),
                         )
                         for i, item in enumerate(audio)
-                        if i < audio_limit
+                        if i < mm_limit
                     )
                 if user_content:
                     messages.append(
@@ -400,10 +400,14 @@ class Predictor(BasePredictor):
                             role="user", content=user_content
                         )
                     )
-        elif not messages:
+        elif not chat_completion:
             error_message = "No messages or prompt inputs specified"
             logger.error("%s", error_message)
             raise ResponseError(error_message)
+
+        usage: UsageInfo | None = None
+        responses: list[str] = []
+        finish_reason: str | None = None
 
         # Chat completion API
         request = ChatCompletionRequest(
@@ -428,9 +432,6 @@ class Predictor(BasePredictor):
             request_id=request_id,
         )
 
-        usage: UsageInfo | None = None
-        responses: list[str] = []
-        finish_reason: str | None = None
         generator = await self.create_chat_completion(request)
         match generator:
             case ChatCompletionResponse():
@@ -487,8 +488,8 @@ class Predictor(BasePredictor):
                 usage.completion_tokens,
                 usage.total_tokens,
             )
-            self.record_metric("input_token_count", usage.prompt_tokens)
-            self.record_metric("output_token_count", usage.completion_tokens)
+            self.record_metric("token_input_count", usage.prompt_tokens)
+            self.record_metric("token_output_count", usage.completion_tokens)
 
         logger.info("predict() completed request_id=%s", request_id)
 
