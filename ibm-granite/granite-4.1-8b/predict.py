@@ -17,6 +17,7 @@ import typing
 from collections.abc import AsyncGenerator, AsyncIterator
 
 import torch
+import typing_extensions
 from cog import AsyncConcatenateIterator, BasePredictor, Input
 from cog import Path as CogPath
 from cog.coder import Coder
@@ -172,15 +173,20 @@ class TypedDictCoder(Coder):
 
     @staticmethod
     def factory(tpe: type) -> typing.Optional["TypedDictCoder"]:
-        if issubclass(tpe, dict):
-            return TypedDictCoder()
+        if typing_extensions.is_typeddict(
+            tpe
+        ):  # handles typing.TypedDict and typing_extensions.TypedDict
+            return TypedDictCoder(tpe)
         return None
+
+    def __init__(self, cls: type[dict]):
+        self.cls = cls
 
     def encode(self, x: dict) -> dict:
         return x
 
     def decode(self, x: dict) -> dict:
-        return x
+        return self.cls(**x)
 
 
 # pylint: disable=invalid-overridden-method, signature-differs, abstract-method, too-many-instance-attributes
@@ -372,8 +378,8 @@ class Predictor(BasePredictor):
             deprecated=True,
         ),  # pyright: ignore[reportArgumentType]
         max_completion_tokens: int | None = Input(
-            description="An upper bound for the number of tokens that can be generated for a completion, "
-            "including visible output tokens and reasoning tokens.",
+            description="An upper bound for the number of tokens that can be generated for a "
+            "completion, including visible output tokens and reasoning tokens.",
             default=None,
         ),  # pyright: ignore[reportArgumentType]
         temperature: float = Input(
@@ -440,11 +446,11 @@ class Predictor(BasePredictor):
                             role="system", content=system_prompt
                         )
                     )
-                if prompt and (system_prompt or not prompt.lstrip().startswith("<|start_of_role|>")):
+                if prompt and (
+                    system_prompt or not prompt.lstrip().startswith("<|start_of_role|>")
+                ):
                     messages.append(
-                        CustomChatCompletionMessageParam(
-                            role="user", content=prompt
-                        )
+                        CustomChatCompletionMessageParam(role="user", content=prompt)
                     )
         elif not chat_completion:
             error_message = "No messages or prompt inputs specified"

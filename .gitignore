@@ -1,7 +1,10 @@
 .cog/
 *.bak
 venv/
+venv
 .venv/
+.venv
 weights/
 !weights/.gitignore
 sparse_logs/
+.vscode/

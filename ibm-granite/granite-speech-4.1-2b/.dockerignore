@@ -23,3 +23,6 @@ tests
 
 # Exclude cog.bak files
 *.cog.bak
+
+# Exclude venv
+.venv
