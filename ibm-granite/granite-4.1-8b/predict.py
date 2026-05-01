@@ -4,6 +4,7 @@
 # https://cog.run/python
 
 # pylint: disable=missing-module-docstring, missing-class-docstring, no-name-in-module, attribute-defined-outside-init
+# mypy: disable-error-code="import-untyped"
 
 import asyncio
 import inspect
@@ -17,6 +18,7 @@ import typing
 from collections.abc import AsyncGenerator, AsyncIterator
 
 import torch
+import typing_extensions
 from cog import AsyncConcatenateIterator, BasePredictor, Input
 from cog import Path as CogPath
 from cog.coder import Coder
@@ -172,20 +174,27 @@ class TypedDictCoder(Coder):
 
     @staticmethod
     def factory(tpe: type) -> typing.Optional["TypedDictCoder"]:
-        if issubclass(tpe, dict):
-            return TypedDictCoder()
+        if typing_extensions.is_typeddict(
+            tpe
+        ):  # handles typing.TypedDict and typing_extensions.TypedDict
+            return TypedDictCoder(tpe)
         return None
+
+    def __init__(self, cls: type[dict]):
+        self.cls = cls
 
     def encode(self, x: dict) -> dict:
         return x
 
     def decode(self, x: dict) -> dict:
-        return x
+        return self.cls(**x)
 
 
-# pylint: disable=invalid-overridden-method, signature-differs, abstract-method, too-many-instance-attributes
+# pylint: disable=invalid-overridden-method, signature-differs, abstract-method, too-many-instance-attributes, arguments-differ
 class Predictor(BasePredictor):
-    async def setup(self, weights: CogPath | str | None) -> None:
+    async def setup(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, weights: CogPath | str | None
+    ) -> None:
         # Model weights must be in the "weights" folder.
         # This can be overridden with the COG_WEIGHTS env var.
         if not weights:
@@ -316,7 +325,7 @@ class Predictor(BasePredictor):
 
         logger.info("setup() complete")
 
-    async def predict(  # pylint: disable=invalid-overridden-method, arguments-differ, too-many-arguments, too-many-positional-arguments, too-many-locals
+    async def predict(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         # prompt must be the first argument
         # The LangChain Replicate class will use the first argument to supply the prompt
@@ -372,8 +381,8 @@ class Predictor(BasePredictor):
             deprecated=True,
         ),  # pyright: ignore[reportArgumentType]
         max_completion_tokens: int | None = Input(
-            description="An upper bound for the number of tokens that can be generated for a completion, "
-            "including visible output tokens and reasoning tokens.",
+            description="An upper bound for the number of tokens that can be generated for a "
+            "completion, including visible output tokens and reasoning tokens.",
             default=None,
         ),  # pyright: ignore[reportArgumentType]
         temperature: float = Input(
@@ -440,11 +449,11 @@ class Predictor(BasePredictor):
                             role="system", content=system_prompt
                         )
                     )
-                if prompt and (system_prompt or not prompt.lstrip().startswith("<|start_of_role|>")):
+                if prompt and (
+                    system_prompt or not prompt.lstrip().startswith("<|start_of_role|>")
+                ):
                     messages.append(
-                        CustomChatCompletionMessageParam(
-                            role="user", content=prompt
-                        )
+                        CustomChatCompletionMessageParam(role="user", content=prompt)
                     )
         elif not chat_completion:
             error_message = "No messages or prompt inputs specified"
@@ -452,14 +461,15 @@ class Predictor(BasePredictor):
             raise ResponseError(error_message)
 
         usage: UsageInfo | None = None
-        responses: list[str] = []
         finish_reason: str | None = None
+        responses: list[str] = []
 
-        if messages:  # Use chat completion API
+        async def create_chat_completion_response() -> AsyncGenerator[str, None]:
+            nonlocal usage, finish_reason
             request = ChatCompletionRequest(
                 model=self.serving_models.model_name(),
-                messages=messages,  # pyright: ignore[reportArgumentType]
-                tools=tools or None,  # pyright: ignore[reportArgumentType]
+                messages=messages,  # type: ignore[arg-type]
+                tools=tools or None,  # type: ignore[arg-type]
                 tool_choice=process_tool_choice(tool_choice),
                 documents=process_documents(documents),
                 response_format=typing.cast(AnyResponseFormat, response_format),
@@ -485,46 +495,58 @@ class Predictor(BasePredictor):
             generator = await self.create_chat_completion(request)
             match generator:
                 case ChatCompletionResponse():
-                    usage = generator.usage
-                    assert len(generator.choices) == 1, (
-                        "Expected exactly one output from generation request."
-                    )
-                    choice = generator.choices[0]
-                    finish_reason = choice.finish_reason
-                    response_text = (
-                        generator.model_dump_json()
-                        if chat_completion
-                        else choice.message.content
-                    )
-                    if response_text:
-                        responses.append(response_text)
-                        yield response_text  # type: ignore
+
+                    async def chat_completion_response() -> AsyncGenerator[str, None]:
+                        nonlocal usage, finish_reason
+                        usage = generator.usage
+                        assert len(generator.choices) == 1, (
+                            "Expected exactly one output from generation request."
+                        )
+                        choice = generator.choices[0]
+                        finish_reason = choice.finish_reason
+                        response_text = (
+                            generator.model_dump_json()
+                            if chat_completion
+                            else choice.message.content
+                        )
+                        if response_text:
+                            yield response_text
+
+                    return chat_completion_response()
                 case AsyncGenerator():
-                    async for response in generator:
-                        if not finish_reason:
-                            if response.usage:
-                                usage = response.usage
-                            assert len(response.choices) == 1, (
-                                "Expected exactly one output from generation request."
-                            )
-                            choice = response.choices[0]
-                            if choice.finish_reason:
-                                finish_reason = choice.finish_reason
-                            response_text = (
-                                response.model_dump_json()
-                                if chat_completion
-                                else choice.delta.content
-                            )
-                            if response_text:
-                                responses.append(response_text)
-                                yield response_text  # type: ignore
+
+                    async def chat_completion_stream_response() -> AsyncGenerator[
+                        str, None
+                    ]:
+                        nonlocal usage, finish_reason
+                        async for response in generator:
+                            if not finish_reason:
+                                if response.usage:
+                                    usage = response.usage
+                                assert len(response.choices) == 1, (
+                                    "Expected exactly one output from generation request."
+                                )
+                                choice = response.choices[0]
+                                if choice.finish_reason:
+                                    finish_reason = choice.finish_reason
+                                response_text = (
+                                    response.model_dump_json()
+                                    if chat_completion
+                                    else choice.delta.content
+                                )
+                                if response_text:
+                                    yield response_text
+
+                    return chat_completion_stream_response()
                 case ErrorResponse():
                     logger.error("%r", generator)
                     raise ResponseError(generator.model_dump_json())
 
-        else:  # Completion API for an already formatted prompt
-            if max_completion_tokens is None:
-                max_completion_tokens = 512
+        async def create_completion_response() -> AsyncGenerator[str, None]:
+            nonlocal usage, finish_reason
+            max_tokens = (
+                max_completion_tokens if max_completion_tokens is not None else 512
+            )
             request = CompletionRequest(
                 model=self.serving_models.model_name(),
                 prompt=prompt,
@@ -534,7 +556,7 @@ class Predictor(BasePredictor):
                 top_p=top_p,
                 temperature=temperature,
                 min_tokens=min_tokens,
-                max_tokens=max_completion_tokens,
+                max_tokens=max_tokens,
                 stop=stop,
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
@@ -548,34 +570,52 @@ class Predictor(BasePredictor):
             generator = await self.create_completion(request)
             match generator:
                 case CompletionResponse():
-                    usage = generator.usage
-                    assert len(generator.choices) == 1, (
-                        "Expected exactly one output from generation request."
-                    )
-                    choice = generator.choices[0]
-                    finish_reason = choice.finish_reason
-                    choice_text = choice.text
-                    if choice_text:
-                        responses.append(choice_text)
-                        yield choice_text  # type: ignore
+
+                    async def completion_response() -> AsyncGenerator[str, None]:
+                        nonlocal usage, finish_reason
+                        usage = generator.usage
+                        assert len(generator.choices) == 1, (
+                            "Expected exactly one output from generation request."
+                        )
+                        choice = generator.choices[0]
+                        finish_reason = choice.finish_reason
+                        choice_text = choice.text
+                        if choice_text:
+                            yield choice_text
+
+                    return completion_response()
                 case AsyncGenerator():
-                    async for response in generator:
-                        if not finish_reason:
-                            if response.usage:
-                                usage = response.usage
-                            assert len(response.choices) == 1, (
-                                "Expected exactly one output from generation request."
-                            )
-                            choice = response.choices[0]
-                            if choice.finish_reason:
-                                finish_reason = choice.finish_reason
-                            choice_text = choice.text
-                            if choice_text:
-                                responses.append(choice_text)
-                                yield choice_text  # type: ignore
+
+                    async def completion_stream_response() -> AsyncGenerator[str, None]:
+                        nonlocal usage, finish_reason
+                        async for response in generator:
+                            if not finish_reason:
+                                if response.usage:
+                                    usage = response.usage
+                                assert len(response.choices) == 1, (
+                                    "Expected exactly one output from generation request."
+                                )
+                                choice = response.choices[0]
+                                if choice.finish_reason:
+                                    finish_reason = choice.finish_reason
+                                choice_text = choice.text
+                                if choice_text:
+                                    yield choice_text
+
+                    return completion_stream_response()
                 case ErrorResponse():
                     logger.error("%r", generator)
                     raise ResponseError(generator.model_dump_json())
+
+        response = await (
+            create_chat_completion_response()
+            if messages
+            else create_completion_response()
+        )
+        async for response_text in response:
+            if response_text:
+                responses.append(response_text)
+                yield response_text  # type: ignore
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -711,9 +751,7 @@ class Predictor(BasePredictor):
         predictor_config_path = weights.joinpath("predictor_config.json")
         if not predictor_config_path.exists():
             predictor_config_path = pathlib.Path("predictor_config.json")
-            if not predictor_config_path.exists():
-                predictor_config_path = None
-        if predictor_config_path:
+        if predictor_config_path.exists():
             logger.debug("Loading predictor_config.json path=%s", predictor_config_path)
             json_data = predictor_config_path.read_text(encoding="utf-8")
             config = PredictorConfig.model_validate_json(json_data)
