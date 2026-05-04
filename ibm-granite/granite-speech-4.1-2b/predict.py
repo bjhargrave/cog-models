@@ -19,10 +19,8 @@ import typing
 from collections.abc import AsyncGenerator, AsyncIterator
 
 import torch
-import typing_extensions
 from cog import AsyncConcatenateIterator, BasePredictor, Input
 from cog import Path as CogPath
-from cog.coder import Coder
 from openai.types.chat import ChatCompletionContentPartTextParam
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -111,27 +109,6 @@ class PredictorConfig(BaseModel):
     trust_request_chat_template: bool = Field(default=False)
     default_chat_template_kwargs: dict[str, typing.Any] = Field(default_factory=dict)
     engine_args: dict[str, typing.Any] = Field(default_factory=dict)
-
-
-class TypedDictCoder(Coder):
-    """This class lets cog accept TypedDict as a dict Input."""
-
-    @staticmethod
-    def factory(tpe: type) -> typing.Optional["TypedDictCoder"]:
-        if typing_extensions.is_typeddict(
-            tpe
-        ):  # handles typing.TypedDict and typing_extensions.TypedDict
-            return TypedDictCoder(tpe)
-        return None
-
-    def __init__(self, cls: type[dict]):
-        self.cls = cls
-
-    def encode(self, x: dict) -> dict:
-        return x
-
-    def decode(self, x: dict) -> dict:
-        return self.cls(**x)
 
 
 # pylint: disable=invalid-overridden-method, signature-differs, abstract-method, too-many-instance-attributes, arguments-differ
@@ -416,7 +393,6 @@ class Predictor(BasePredictor):
 
         usage: UsageInfo | None = None
         finish_reason: str | None = None
-        responses: list[str] = []
 
         async def create_chat_completion_response() -> AsyncGenerator[str, None]:
             nonlocal usage, finish_reason
@@ -492,6 +468,7 @@ class Predictor(BasePredictor):
                     logger.error("%r", generator)
                     raise ResponseError(generator.model_dump_json())
 
+        responses: list[str] = []
         response = await create_chat_completion_response()
         async for response_text in response:
             if response_text:
