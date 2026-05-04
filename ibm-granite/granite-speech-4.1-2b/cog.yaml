@@ -7,7 +7,7 @@
 image: "r8.im/ibm-granite/granite-speech-4.1-2b:1.0.2"
 
 build:
-  sdk_version: "0.18.0"
+  sdk_version: "0.19.2"
   # set to true if your model requires a GPU
   gpu: true
   # This needs to match the CUDA version in pyproject.toml
