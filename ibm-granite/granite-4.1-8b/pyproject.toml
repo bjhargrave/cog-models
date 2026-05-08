@@ -2,7 +2,7 @@
 
 [project]
 name = "granite-4.1-8b"
-version = "1.0.2"
+version = "1.0.3"
 description = "Dependencies for predict.py"
 dependencies = [
     "vllm==0.19.0",
