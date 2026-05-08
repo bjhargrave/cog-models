@@ -15,7 +15,7 @@ import pathlib
 import sys
 import time
 import typing
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator
 
 import torch
 from cog import AsyncConcatenateIterator, BasePredictor, Input
@@ -165,6 +165,25 @@ class JsonSchemaResponseFormat(typing.TypedDict, total=False):
 class ResponseFormat(typing.TypedDict, total=False):
     type: typing.Required[typing.Literal["text", "json_object", "json_schema"]]
     json_schema: JsonSchemaResponseFormat | None
+
+
+def model_dump_json(instance: BaseModel) -> str:
+    """Render a BaseModel instance into a JSON string for a response.
+
+    Args:
+        instance (BaseModel): The BaseModel instance to render.
+
+    Returns:
+        str: The BaseModel instance rendered into a JSON str.
+    """
+    # This is consistent with starlette's JSONResponse used in vLLM
+    return json.dumps(
+        instance.model_dump(),
+        ensure_ascii=False,
+        allow_nan=False,
+        indent=None,
+        separators=(",", ":"),
+    )
 
 
 # pylint: disable=invalid-overridden-method, signature-differs, abstract-method, too-many-instance-attributes, arguments-differ
@@ -468,7 +487,7 @@ class Predictor(BasePredictor):
                 request_id=request_id,
             )
 
-            generator = await self.create_chat_completion(request)
+            generator = await self.chat().create_chat_completion(request)
             match generator:
                 case ChatCompletionResponse():
 
@@ -481,7 +500,7 @@ class Predictor(BasePredictor):
                         choice = generator.choices[0]
                         finish_reason = choice.finish_reason
                         response_text = (
-                            generator.model_dump_json()
+                            model_dump_json(generator)
                             if chat_completion
                             else choice.message.content
                         )
@@ -495,8 +514,17 @@ class Predictor(BasePredictor):
                         str, None
                     ]:
                         nonlocal usage, finish_reason
-                        async for response in generator:
-                            if not finish_reason:
+                        async for response_str in generator:
+                            if not finish_reason and response_str.startswith("data: "):
+                                data_str = response_str[6:].strip()
+                                if data_str == "[DONE]":
+                                    break
+                                try:
+                                    response = ChatCompletionStreamResponse.model_validate_json(
+                                        data_str
+                                    )
+                                except ValidationError:  # It could be an ErrorResponse
+                                    raise ResponseError(data_str)  # pylint: disable=raise-missing-from
                                 if response.usage:
                                     usage = response.usage
                                 assert len(response.choices) == 1, (
@@ -506,7 +534,7 @@ class Predictor(BasePredictor):
                                 if choice.finish_reason:
                                     finish_reason = choice.finish_reason
                                 response_text = (
-                                    response.model_dump_json()
+                                    data_str
                                     if chat_completion
                                     else choice.delta.content
                                 )
@@ -516,7 +544,7 @@ class Predictor(BasePredictor):
                     return chat_completion_stream_response()
                 case ErrorResponse():
                     logger.error("%r", generator)
-                    raise ResponseError(generator.model_dump_json())
+                    raise ResponseError(model_dump_json(generator))
 
         async def create_completion_response() -> AsyncGenerator[str, None]:
             nonlocal usage, finish_reason
@@ -543,7 +571,7 @@ class Predictor(BasePredictor):
                 request_id=request_id,
             )
 
-            generator = await self.create_completion(request)
+            generator = await self.completion().create_completion(request)
             match generator:
                 case CompletionResponse():
 
@@ -564,8 +592,22 @@ class Predictor(BasePredictor):
 
                     async def completion_stream_response() -> AsyncGenerator[str, None]:
                         nonlocal usage, finish_reason
-                        async for response in generator:
-                            if not finish_reason:
+                        async for response_str in generator:
+                            if not finish_reason and response_str.startswith("data: "):
+                                data_str = response_str[6:].strip()
+                                if data_str == "[DONE]":
+                                    break
+                                try:
+                                    # data_str could represent CompletionResponse or
+                                    # CompletionStreamResponse but they are similar enough
+                                    # to use CompletionStreamResponse
+                                    response = (
+                                        CompletionStreamResponse.model_validate_json(
+                                            data_str
+                                        )
+                                    )
+                                except ValidationError:  # It could be an ErrorResponse
+                                    raise ResponseError(data_str)  # pylint: disable=raise-missing-from
                                 if response.usage:
                                     usage = response.usage
                                 assert len(response.choices) == 1, (
@@ -581,7 +623,7 @@ class Predictor(BasePredictor):
                     return completion_stream_response()
                 case ErrorResponse():
                     logger.error("%r", generator)
-                    raise ResponseError(generator.model_dump_json())
+                    raise ResponseError(model_dump_json(generator))
 
         responses: list[str] = []
         response = await (
@@ -623,40 +665,6 @@ class Predictor(BasePredictor):
         )
         return handler
 
-    async def create_completion(
-        self, request: CompletionRequest
-    ) -> (
-        AsyncGenerator[CompletionStreamResponse, None]
-        | CompletionResponse
-        | ErrorResponse
-    ):
-        """Create completion response generator"""
-        handler = self.completion()
-        generator = await handler.create_completion(request, None)
-
-        match generator:
-            case ErrorResponse() | CompletionResponse():
-                return generator
-            case AsyncGenerator():
-                return self.completion_stream_generator(generator)
-
-    async def completion_stream_generator(
-        self, response_generator: AsyncIterator[str]
-    ) -> AsyncGenerator[CompletionStreamResponse, None]:
-        """Create a generator for streaming completion responses"""
-        async for response_str in response_generator:
-            if response_str.startswith("data: "):
-                data_str = response_str[6:].strip()
-                if data_str == "[DONE]":
-                    break
-                try:
-                    # data_str could represent CompletionResponse or CompletionStreamResponse
-                    # But they are similar enough to use CompletionStreamResponse
-                    response = CompletionStreamResponse.model_validate_json(data_str)
-                    yield response
-                except ValidationError:  # It could be an ErrorResponse
-                    raise ResponseError(data_str)  # pylint: disable=raise-missing-from
-
     def chat(self) -> OpenAIServingChat:
         """Return chat completion handler"""
         handler = self.serving_chat
@@ -664,40 +672,6 @@ class Predictor(BasePredictor):
             f"generate task is not supported by model {self.serving_models.model_name()}"
         )
         return handler
-
-    async def create_chat_completion(
-        self, request: ChatCompletionRequest
-    ) -> (
-        AsyncGenerator[ChatCompletionStreamResponse, None]
-        | ChatCompletionResponse
-        | ErrorResponse
-    ):
-        """Create chat completion response generator"""
-        handler = self.chat()
-        generator = await handler.create_chat_completion(request, None)
-
-        match generator:
-            case ErrorResponse() | ChatCompletionResponse():
-                return generator
-            case AsyncGenerator():
-                return self.chat_completion_stream_generator(generator)
-
-    async def chat_completion_stream_generator(
-        self, response_generator: AsyncIterator[str]
-    ) -> AsyncGenerator[ChatCompletionStreamResponse, None]:
-        """Create a generator for streaming chat completion responses"""
-        async for response_str in response_generator:
-            if response_str.startswith("data: "):
-                data_str = response_str[6:].strip()
-                if data_str == "[DONE]":
-                    break
-                try:
-                    response = ChatCompletionStreamResponse.model_validate_json(
-                        data_str
-                    )
-                    yield response
-                except ValidationError:  # It could be an ErrorResponse
-                    raise ResponseError(data_str)  # pylint: disable=raise-missing-from
 
     _defaults = {
         key: param.default.default

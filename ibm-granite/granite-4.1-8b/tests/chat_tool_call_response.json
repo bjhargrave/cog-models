@@ -6,20 +6,22 @@
         },
         {
             "role": "assistant",
+            "content": "",
             "tool_calls": [
                 {
                     "id": "chatcmpl-tool-92d6ee08f1f14bab9a593271ca4174ab",
                     "type": "function",
                     "function": {
                         "name": "get_current_weather",
-                        "arguments": "{\"location\": \"Boston, MA\", \"unit\": \"celsius\"}"
+                        "arguments": "{\n  \"location\": \"Boston\",\n  \"unit\": \"fahrenheit\"\n}"
                     }
                 }
             ]
         },
         {
             "role": "tool",
-            "content": "Boston is sunny with a temperature of 30°C."
+            "content": "{\"description\": \"sunny\", \"temperature\": 30, \"humidity\": 50}",
+            "tool_call_id": "chatcmpl-tool-92d6ee08f1f14bab9a593271ca4174ab"
         }
     ],
     "tools": [
