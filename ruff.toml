@@ -1,0 +1,18 @@
+include = ["predict.py"]
+target-version = "py312"
+line-length = 180
+
+[lint]
+select = [
+    "B",   # flake8-bugbear
+    "E",   # pycodestyle
+    "F",   # Pyflakes
+    "Q",   # flake8-quotes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "TID", # flake8-tidy-imports
+]
+
+[lint.flake8-bugbear]
+extend-immutable-calls = ["cog.Input"]
