@@ -3,9 +3,6 @@
 # Prediction interface for Cog ⚙️
 # https://cog.run/python
 
-# pylint: disable=missing-module-docstring, missing-class-docstring, no-name-in-module, attribute-defined-outside-init
-# mypy: disable-error-code="import-untyped"
-
 import asyncio
 import base64
 import inspect
@@ -17,6 +14,7 @@ import sys
 import time
 import typing
 from collections.abc import AsyncGenerator
+from typing import override
 
 import torch
 from cog import AsyncConcatenateIterator, BasePredictor, Input
@@ -100,9 +98,7 @@ class PredictorConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     chat_template: str | None = Field(default=None)
-    chat_template_content_format: ChatTemplateContentFormatOption = Field(
-        default="auto"
-    )
+    chat_template_content_format: ChatTemplateContentFormatOption = Field(default="auto")
     enable_log_requests: bool = Field(default=False)
     max_log_len: int | None = Field(default=None)
     enable_force_include_usage: bool = Field(default=False)
@@ -132,11 +128,10 @@ def model_dump_json(instance: BaseModel) -> str:
     )
 
 
-# pylint: disable=invalid-overridden-method, signature-differs, abstract-method, too-many-instance-attributes, arguments-differ
 class Predictor(BasePredictor):
-    async def setup(  # pyright: ignore[reportIncompatibleMethodOverride]
-        self, weights: CogPath | str | None
-    ) -> None:
+    @override
+    # pyrefly: ignore [bad-override]
+    async def setup(self, weights: CogPath | str | None) -> None:
         # Model weights must be in the "weights" folder.
         # This can be overridden with the COG_WEIGHTS env var.
         if not weights:
@@ -166,17 +161,9 @@ class Predictor(BasePredictor):
         supported_tasks = await self.engine.get_supported_tasks()
         logger.debug("Supported_tasks: %s", supported_tasks)
 
-        request_logger = (
-            RequestLogger(max_log_len=self.config.max_log_len)
-            if self.config.enable_log_requests
-            else None
-        )
+        request_logger = RequestLogger(max_log_len=self.config.max_log_len) if self.config.enable_log_requests else None
 
-        default_mm_loras = (
-            vllm_config.lora_config.default_mm_loras
-            if vllm_config.lora_config is not None
-            else None
-        )
+        default_mm_loras = vllm_config.lora_config.default_mm_loras if vllm_config.lora_config is not None else None
         lora_modules = (
             [
                 LoRAModulePath(
@@ -195,10 +182,7 @@ class Predictor(BasePredictor):
             if model_config.served_model_name
             else [model_config.model]
         )
-        base_model_paths = [
-            BaseModelPath(name=name, model_path=model_config.model)
-            for name in served_model_names
-        ]
+        base_model_paths = [BaseModelPath(name=name, model_path=model_config.model) for name in served_model_names]
         self.serving_models = OpenAIServingModels(
             engine_client=self.engine,
             base_model_paths=base_model_paths,
@@ -240,14 +224,16 @@ class Predictor(BasePredictor):
         self.request_counter = Counter(1)
 
         generator = self.predict(
-            **dict(
-                self._defaults,
-                max_completion_tokens=500,
-                prompt="<chart2summary>",
-                images=[weights.resolve().joinpath("chart.jpg")],
+            **(
+                self._defaults
+                | {
+                    "prompt": "<chart2summary>",
+                    "images": [weights.resolve().joinpath("chart.jpg")],
+                    "max_completion_tokens": 500,
+                }
             )
         )
-        test_output = "".join([tok async for tok in generator])  # type: ignore
+        test_output = "".join([tok async for tok in generator])
         logger.debug("Test prediction output test_output=%s", test_output)
 
         logger.info("setup() complete")
@@ -269,93 +255,83 @@ class Predictor(BasePredictor):
         encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
         return f"data:{media_type};base64,{encoded}"
 
-    async def predict(  # pyright: ignore[reportIncompatibleMethodOverride]
+    @override
+    # pyrefly: ignore [bad-override]
+    async def predict(
         self,
         # prompt must be the first argument
         # The LangChain Replicate class will use the first argument to supply the prompt
-        prompt: str | None = Input(
-            description="Completion API user prompt.", default=None
-        ),  # pyright: ignore[reportArgumentType]
+        prompt: str | None = Input(description="Completion API user prompt.", default=None),
         messages: list[CustomChatCompletionMessageParam] = Input(
             description="Chat completion API messages.",
             default=[],
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         images: list[CogPath] | None = Input(
             description="Completion API Image input.",
             default=None,
         ),
         system_prompt: str | None = Input(
-            description="Completion API system prompt. "
-            "The chat template provides a good default.",
+            description="Completion API system prompt. The chat template provides a good default.",
             default=None,
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         chat_template: str | None = Input(
-            description="A template to format the prompt with. If not specified, "
-            "the chat template provided by the model will be used.",
+            description="A template to format the prompt with. If not specified, the chat template provided by the model will be used.",
             default=None,
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         add_generation_prompt: bool = Input(
             description="Add generation prompt. Passed to the chat template. Defaults to True.",
             default=True,
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         chat_template_kwargs: dict[str, typing.Any] = Input(
             description="Additional arguments to be passed to the chat template.",
             default={},
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         min_tokens: int = Input(
             description="The minimum number of tokens the model should generate as output.",
             default=0,
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         max_tokens: int | None = Input(
             description="max_tokens is deprecated in favor of the max_completion_tokens field.",
             default=None,
             deprecated=True,
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         max_completion_tokens: int | None = Input(
-            description="An upper bound for the number of tokens that can be generated for a "
-            "completion, including visible output tokens and reasoning tokens.",
+            description="An upper bound for the number of tokens that can be generated for a completion, including visible output tokens and reasoning tokens.",
             default=None,
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         temperature: float = Input(
             description="The value used to modulate the next token probabilities.",
             default=0.2,
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         top_p: float = Input(
             description="A probability threshold for generating the output. If < 1.0, only keep "
             "the top tokens with cumulative probability >= top_p (nucleus filtering). "
             "Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751).",
             default=0.9,
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         top_k: int = Input(
             description="The number of highest probability tokens to consider for generating "
             "the output. If > 0, only keep the top k tokens with highest probability "
             "(top-k filtering).",
             default=50,
-        ),  # pyright: ignore[reportArgumentType]
-        presence_penalty: float | None = Input(
-            description="Presence penalty", default=None
-        ),  # pyright: ignore[reportArgumentType]
-        frequency_penalty: float | None = Input(
-            description="Frequency penalty", default=None
-        ),  # pyright: ignore[reportArgumentType]
-        repetition_penalty: float | None = Input(
-            description="Repetition penalty", default=None
-        ),  # pyright: ignore[reportArgumentType]
+        ),
+        presence_penalty: float | None = Input(description="Presence penalty", default=None),
+        frequency_penalty: float | None = Input(description="Frequency penalty", default=None),
+        repetition_penalty: float | None = Input(description="Repetition penalty", default=None),
         stop: list[str] = Input(
-            description="A list of sequences to stop generation at. "
-            'For example, ["<end>","<stop>"] will stop generation at the first instance of '
-            '"<end>" or "<stop>".',
+            description='A list of sequences to stop generation at. For example, ["<end>","<stop>"] will stop generation at the first instance of "<end>" or "<stop>".',
             default=[],
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         seed: int | None = Input(
             description="Random seed. Leave unspecified to randomize the seed.",
             default=None,
-        ),  # pyright: ignore[reportArgumentType]
+        ),
         stream: bool = Input(
             description="Request streaming response. Defaults to False.",
             default=False,
-        ),  # pyright: ignore[reportArgumentType]
-    ) -> AsyncConcatenateIterator[str]:  # type: ignore
+        ),
+        # pyrefly: ignore [bad-return]
+    ) -> AsyncConcatenateIterator[str]:
         start_time = time.time()
         request_id = str(next(self.request_counter))
         logger.info("predict() commencing request_id=%s", request_id)
@@ -368,30 +344,17 @@ class Predictor(BasePredictor):
         chat_completion = bool(messages)
         if prompt or system_prompt or images:
             if chat_completion:
-                logger.warning(
-                    "Mutually exclusive messages and prompt/system prompt/images are specified. "
-                    "Only messages will be used."
-                )
+                logger.warning("Mutually exclusive messages and prompt/system prompt/images are specified. Only messages will be used.")
             else:
                 messages = []  # new list
                 if system_prompt:
-                    messages.append(
-                        CustomChatCompletionMessageParam(
-                            role="system", content=system_prompt
-                        )
-                    )
+                    messages.append(CustomChatCompletionMessageParam(role="system", content=system_prompt))
                 user_content: list[ChatCompletionContentPartParam] = []
                 if prompt:
-                    user_content.append(
-                        ChatCompletionContentPartTextParam(type="text", text=prompt)
-                    )
+                    user_content.append(ChatCompletionContentPartTextParam(type="text", text=prompt))
                 if images:
                     mm_config = self.engine.vllm_config.model_config.multimodal_config
-                    mm_limit = (
-                        mm_config.get_limit_per_prompt("image")
-                        if mm_config
-                        else sys.maxsize
-                    )
+                    mm_limit = mm_config.get_limit_per_prompt("image") if mm_config else sys.maxsize
                     user_content.extend(
                         ChatCompletionContentPartImageParam(
                             type="image_url",
@@ -401,11 +364,7 @@ class Predictor(BasePredictor):
                         if i < mm_limit
                     )
                 if user_content:
-                    messages.append(
-                        CustomChatCompletionMessageParam(
-                            role="user", content=user_content
-                        )
-                    )
+                    messages.append(CustomChatCompletionMessageParam(role="user", content=user_content))
         elif not chat_completion:
             error_message = "No messages or prompt inputs specified"
             logger.error("%s", error_message)
@@ -418,7 +377,7 @@ class Predictor(BasePredictor):
             nonlocal usage, finish_reason
             request = ChatCompletionRequest(
                 model=self.serving_models.model_name(),
-                messages=messages,  # type: ignore[arg-type]
+                messages=messages,
                 chat_template=chat_template,
                 add_generation_prompt=add_generation_prompt,
                 chat_template_kwargs=chat_template_kwargs,
@@ -445,25 +404,17 @@ class Predictor(BasePredictor):
                     async def chat_completion_response() -> AsyncGenerator[str, None]:
                         nonlocal usage, finish_reason
                         usage = generator.usage
-                        assert len(generator.choices) == 1, (
-                            "Expected exactly one output from generation request."
-                        )
+                        assert len(generator.choices) == 1, "Expected exactly one output from generation request."
                         choice = generator.choices[0]
                         finish_reason = choice.finish_reason
-                        response_text = (
-                            model_dump_json(generator)
-                            if chat_completion
-                            else choice.message.content
-                        )
+                        response_text = model_dump_json(generator) if chat_completion else choice.message.content
                         if response_text:
                             yield response_text
 
                     return chat_completion_response()
                 case AsyncGenerator():
 
-                    async def chat_completion_stream_response() -> AsyncGenerator[
-                        str, None
-                    ]:
+                    async def chat_completion_stream_response() -> AsyncGenerator[str, None]:
                         nonlocal usage, finish_reason
                         async for response_str in generator:
                             if not finish_reason and response_str.startswith("data: "):
@@ -471,24 +422,16 @@ class Predictor(BasePredictor):
                                 if data_str == "[DONE]":
                                     break
                                 try:
-                                    response = ChatCompletionStreamResponse.model_validate_json(
-                                        data_str
-                                    )
+                                    response = ChatCompletionStreamResponse.model_validate_json(data_str)
                                 except ValidationError:  # It could be an ErrorResponse
-                                    raise ResponseError(data_str)  # pylint: disable=raise-missing-from
+                                    raise ResponseError(data_str) from None
                                 if response.usage:
                                     usage = response.usage
-                                assert len(response.choices) == 1, (
-                                    "Expected exactly one output from generation request."
-                                )
+                                assert len(response.choices) == 1, "Expected exactly one output from generation request."
                                 choice = response.choices[0]
                                 if choice.finish_reason:
                                     finish_reason = choice.finish_reason
-                                response_text = (
-                                    data_str
-                                    if chat_completion
-                                    else choice.delta.content
-                                )
+                                response_text = data_str if chat_completion else choice.delta.content
                                 if response_text:
                                     yield response_text
 
@@ -502,7 +445,7 @@ class Predictor(BasePredictor):
         async for response_text in response:
             if response_text:
                 responses.append(response_text)
-                yield response_text  # type: ignore
+                yield response_text
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -528,16 +471,10 @@ class Predictor(BasePredictor):
     def chat(self) -> OpenAIServingChat:
         """Return chat completion handler"""
         handler = self.serving_chat
-        assert handler is not None, (
-            f"generate task is not supported by model {self.serving_models.model_name()}"
-        )
+        assert handler is not None, f"generate task is not supported by model {self.serving_models.model_name()}"
         return handler
 
-    _defaults = {
-        key: param.default.default
-        for key, param in inspect.signature(predict).parameters.items()
-        if hasattr(param.default, "default")
-    }
+    _defaults: dict[str, typing.Any] = {key: param.default.default for key, param in inspect.signature(predict).parameters.items() if hasattr(param.default, "default")}
 
     def load_config(self, weights: pathlib.Path) -> PredictorConfig:
         """
@@ -583,15 +520,15 @@ if __name__ == "__main__":
 
         if len(sys.argv) >= 2:
             file_paths = sys.argv[1:]
-            defaults = predictor._defaults  # pylint: disable=protected-access
+            defaults = predictor._defaults
             print()
             for path in file_paths:
                 print(f"### Test file: {path}")
                 json_str = pathlib.Path(path).read_text(encoding="utf-8")
-                json_dict = json.loads(json_str)
-                inputs = dict(defaults, **json_dict)
+                json_dict: dict[str, typing.Any] = json.loads(json_str)
+                inputs = defaults | json_dict
                 generator = predictor.predict(**inputs)
-                async for output in generator:  # type: ignore
+                async for output in generator:
                     if output.startswith("{") and output.endswith("}"):
                         try:
                             print(json.dumps(json.loads(output), indent=4))
