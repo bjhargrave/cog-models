@@ -18,7 +18,7 @@ from typing import override
 import torch
 from cog import AsyncConcatenateIterator, BasePredictor, Input
 from cog import Path as CogPath
-from openai.types.chat import ChatCompletionToolParam
+from openai.types.chat import ChatCompletionToolParam, ChatCompletionUserMessageParam
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 # Set before importing any of vLLM's packages
@@ -28,6 +28,7 @@ from vllm import envs
 from vllm.config import ModelConfig, VllmConfig
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.chat_utils import (
+    ChatCompletionMessageParam,
     ChatTemplateContentFormatOption,
     CustomChatCompletionMessageParam,
     load_chat_template,
@@ -204,6 +205,16 @@ class Predictor(BasePredictor):
         logger.debug("AsyncEngineArgs engine_args=%s", engine_args)
         return AsyncLLM.from_engine_args(engine_args)
 
+    def _get_start_token(self) -> str:
+        """Get the start token."""
+        tokenizer = self.engine.get_tokenizer()
+        messages: list[ChatCompletionMessageParam] = [ChatCompletionUserMessageParam(role="user", content="hi")]
+        # pyrefly: ignore [bad-assignment]
+        tokenized: list[int] = tokenizer.apply_chat_template(messages, chat_template=self.resolved_chat_template, return_dict=False, tokenize=True)
+        start_token = tokenizer.decode(tokenized[:1])  # decoded start token
+        logger.debug("Start token: '%s'", start_token)
+        return start_token
+
     async def _initialize_serving_models(self) -> OpenAIServingModels:
         """Initialize OpenAI serving models."""
         # Extract configuration
@@ -319,6 +330,9 @@ class Predictor(BasePredictor):
 
         # Initialize engine
         self.engine = self._initialize_engine(weights)
+
+        # Get start token
+        self.start_token = self._get_start_token()
 
         # Extract supported tasks
         supported_tasks = await self.engine.get_supported_tasks()
@@ -447,7 +461,7 @@ class Predictor(BasePredictor):
                 messages = []  # new list
                 if system_prompt:
                     messages.append(CustomChatCompletionMessageParam(role="system", content=system_prompt))
-                if prompt and (system_prompt or not prompt.lstrip().startswith("<|start_of_role|>")):
+                if prompt and (system_prompt or not prompt.lstrip().startswith(self.start_token)):
                     messages.append(CustomChatCompletionMessageParam(role="user", content=prompt))
         elif not chat_completion:
             error_message = "No messages or prompt inputs specified"
