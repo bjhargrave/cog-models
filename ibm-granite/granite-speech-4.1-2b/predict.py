@@ -54,6 +54,7 @@ from vllm.entrypoints.openai.models.protocol import (
 )
 from vllm.entrypoints.openai.models.serving import OpenAIServingModels
 from vllm.entrypoints.serve.render.serving import OpenAIServingRender
+from vllm.tasks import SupportedTask
 from vllm.utils.counter import Counter
 from vllm.v1.engine.async_llm import AsyncLLM
 
@@ -127,22 +128,22 @@ def model_dump_json(instance: BaseModel) -> str:
 
 
 class Predictor(BasePredictor):
-    @override
-    # pyrefly: ignore [bad-override]
-    async def setup(self, weights: CogPath | str | None) -> None:
-        # Model weights must be in the "weights" folder.
-        # This can be overridden with the COG_WEIGHTS env var.
+    def _resolve_weights_path(self, weights: CogPath | str | None) -> CogPath:
+        """Resolve and validate the weights path."""
         if not weights:
-            weights = CogPath("/src/weights")  # default location
-        elif isinstance(weights, str):
-            weights = CogPath(weights)
-        self.config = self.load_config(weights)
-        logger.info("setup() commencing")
+            return CogPath("/src/weights")
+        return CogPath(weights) if isinstance(weights, str) else weights
 
-        self.resolved_chat_template = load_chat_template(self.config.chat_template)
-        if self.resolved_chat_template:
-            logger.debug("Using chat template from predictor_config.json")
+    def _get_served_model_names(self, model_config: ModelConfig) -> list[str]:
+        """Extract served model names from model config."""
+        if isinstance(model_config.served_model_name, list):
+            return model_config.served_model_name
+        if model_config.served_model_name:
+            return [model_config.served_model_name]
+        return [model_config.model]
 
+    def _initialize_engine(self, weights: CogPath) -> AsyncLLM:
+        """Initialize and configure the AsyncLLM engine."""
         engine_args = AsyncEngineArgs(**self.config.engine_args)
         if "model" not in self.config.engine_args:
             engine_args.model = weights.resolve().as_posix()
@@ -150,45 +151,34 @@ class Predictor(BasePredictor):
             engine_args.tensor_parallel_size = max(torch.cuda.device_count(), 1)
 
         logger.debug("AsyncEngineArgs engine_args=%s", engine_args)
+        return AsyncLLM.from_engine_args(engine_args)
 
-        self.engine = AsyncLLM.from_engine_args(engine_args)
-
+    async def _initialize_serving_models(self) -> OpenAIServingModels:
+        """Initialize OpenAI serving models."""
+        # Extract configuration
         vllm_config: VllmConfig = self.engine.vllm_config
         model_config: ModelConfig = vllm_config.model_config
 
-        supported_tasks = await self.engine.get_supported_tasks()
-        logger.debug("Supported_tasks: %s", supported_tasks)
+        # Build LoRA modules if available
+        lora_modules = None
+        if vllm_config.lora_config is not None:
+            default_mm_loras = vllm_config.lora_config.default_mm_loras
+            if default_mm_loras:
+                lora_modules = [LoRAModulePath(name=modality, path=lora_path) for modality, lora_path in default_mm_loras.items()]
 
-        request_logger = RequestLogger(max_log_len=self.config.max_log_len) if self.config.enable_log_requests else None
-
-        default_mm_loras = vllm_config.lora_config.default_mm_loras if vllm_config.lora_config is not None else None
-        lora_modules = (
-            [
-                LoRAModulePath(
-                    name=modality,
-                    path=lora_path,
-                )
-                for modality, lora_path in default_mm_loras.items()
-            ]
-            if default_mm_loras
-            else None
-        )
-        served_model_names = (
-            model_config.served_model_name
-            if isinstance(model_config.served_model_name, list)
-            else [model_config.served_model_name]
-            if model_config.served_model_name
-            else [model_config.model]
-        )
+        served_model_names = self._get_served_model_names(model_config)
         base_model_paths = [BaseModelPath(name=name, model_path=model_config.model) for name in served_model_names]
-        self.serving_models = OpenAIServingModels(
+        serving_models = OpenAIServingModels(
             engine_client=self.engine,
             base_model_paths=base_model_paths,
             lora_modules=lora_modules,
         )
-        await self.serving_models.init_static_loras()
+        await serving_models.init_static_loras()
+        return serving_models
 
-        self.serving_render = OpenAIServingRender(
+    def _initialize_serving_render(self, request_logger: RequestLogger | None) -> OpenAIServingRender:
+        """Initialize OpenAI serving render component."""
+        return OpenAIServingRender(
             model_config=self.engine.model_config,
             renderer=self.engine.renderer,
             io_processor=self.engine.io_processor,
@@ -201,39 +191,80 @@ class Predictor(BasePredictor):
             log_error_stack=self.config.log_error_stack,
         )
 
-        self.serving_chat = (
-            OpenAIServingChat(
-                engine_client=self.engine,
-                models=self.serving_models,
-                response_role=self.config.response_role,
-                openai_serving_render=self.serving_render,
-                request_logger=request_logger,
-                chat_template=self.resolved_chat_template,
-                chat_template_content_format=self.config.chat_template_content_format,
-                trust_request_chat_template=self.config.trust_request_chat_template,
-                enable_force_include_usage=self.config.enable_force_include_usage,
-                default_chat_template_kwargs=self.config.default_chat_template_kwargs,
-            )
-            if "generate" in supported_tasks
-            else None
+    def _initialize_serving_chat(
+        self,
+        request_logger: RequestLogger | None,
+        supported_tasks: tuple[SupportedTask, ...],
+    ) -> OpenAIServingChat | None:
+        """Initialize OpenAI serving chat component if supported."""
+        if "generate" not in supported_tasks:
+            return None
+
+        serving_chat = OpenAIServingChat(
+            engine_client=self.engine,
+            models=self.serving_models,
+            response_role=self.config.response_role,
+            openai_serving_render=self.serving_render,
+            request_logger=request_logger,
+            chat_template=self.resolved_chat_template,
+            chat_template_content_format=self.config.chat_template_content_format,
+            trust_request_chat_template=self.config.trust_request_chat_template,
+            enable_force_include_usage=self.config.enable_force_include_usage,
+            default_chat_template_kwargs=self.config.default_chat_template_kwargs,
         )
-        if self.serving_chat is not None:
-            self.serving_chat.warmup()
+        serving_chat.warmup()
+        return serving_chat
 
-        self.request_counter = Counter(1)
-
+    async def _run_warmup_test(self, weights: CogPath) -> None:
+        """Run a warmup prediction to ensure the model is ready."""
         generator = self.predict(
             **(
                 self._defaults
                 | {
-                    "max_completion_tokens": 200,
                     "prompt": "Transcribe the speech with proper punctuation and capitalization.",
                     "audio": [weights.resolve().joinpath("multilingual_sample.wav")],
+                    "max_completion_tokens": 200,
                 }
             )
         )
         test_output = "".join([tok async for tok in generator])
         logger.debug("Test prediction output test_output=%s", test_output)
+
+    @override
+    # pyrefly: ignore [bad-override]
+    async def setup(self, weights: CogPath | str | None) -> None:
+        """Initialize the predictor with model weights and configuration."""
+        logger.info("setup() commencing")
+
+        # Resolve weights path and load configuration
+        weights = self._resolve_weights_path(weights)
+        self.config = self.load_config(weights)
+
+        # Load chat template
+        self.resolved_chat_template = load_chat_template(self.config.chat_template)
+        if self.resolved_chat_template:
+            logger.debug("Using chat template from predictor_config.json")
+
+        # Initialize engine
+        self.engine = self._initialize_engine(weights)
+
+        # Extract supported tasks
+        supported_tasks = await self.engine.get_supported_tasks()
+        logger.debug("Supported_tasks: %s", supported_tasks)
+
+        # Setup request logging
+        request_logger = RequestLogger(max_log_len=self.config.max_log_len) if self.config.enable_log_requests else None
+
+        # Initialize serving components
+        self.serving_models = await self._initialize_serving_models()
+        self.serving_render = self._initialize_serving_render(request_logger)
+        self.serving_chat = self._initialize_serving_chat(request_logger, supported_tasks)
+
+        # Initialize request counter
+        self.request_counter = Counter(1)
+
+        # Run warmup test
+        await self._run_warmup_test(weights)
 
         logger.info("setup() complete")
 
@@ -261,9 +292,9 @@ class Predictor(BasePredictor):
         # prompt must be the first argument
         # The LangChain Replicate class will use the first argument to supply the prompt
         prompt: str | None = Input(description="Completion API user prompt.", default=None),
-        messages: list[CustomChatCompletionMessageParam] = Input(
+        messages: list[CustomChatCompletionMessageParam] | None = Input(
             description="Chat completion API messages.",
-            default=[],
+            default=None,
         ),
         audio: list[CogPath] | None = Input(
             description="Completion API Audio input.",
@@ -281,9 +312,9 @@ class Predictor(BasePredictor):
             description="Add generation prompt. Passed to the chat template. Defaults to True.",
             default=True,
         ),
-        chat_template_kwargs: dict[str, typing.Any] = Input(
+        chat_template_kwargs: dict[str, typing.Any] | None = Input(
             description="Additional arguments to be passed to the chat template.",
-            default={},
+            default=None,
         ),
         min_tokens: int = Input(
             description="The minimum number of tokens the model should generate as output.",
@@ -298,36 +329,36 @@ class Predictor(BasePredictor):
             description="An upper bound for the number of tokens that can be generated for a completion, including visible output tokens and reasoning tokens.",
             default=None,
         ),
-        temperature: float = Input(
+        temperature: float | None = Input(
             description="The value used to modulate the next token probabilities.",
-            default=0.2,
+            default=None,
         ),
-        top_p: float = Input(
+        top_p: float | None = Input(
             description="A probability threshold for generating the output. If < 1.0, only keep "
             "the top tokens with cumulative probability >= top_p (nucleus filtering). "
             "Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751).",
-            default=0.9,
+            default=None,
         ),
-        top_k: int = Input(
+        top_k: int | None = Input(
             description="The number of highest probability tokens to consider for generating "
             "the output. If > 0, only keep the top k tokens with highest probability "
             "(top-k filtering).",
-            default=50,
+            default=None,
         ),
         presence_penalty: float | None = Input(description="Presence penalty", default=None),
         frequency_penalty: float | None = Input(description="Frequency penalty", default=None),
         repetition_penalty: float | None = Input(description="Repetition penalty", default=None),
-        stop: list[str] = Input(
+        stop: list[str] | None = Input(
             description='A list of sequences to stop generation at. For example, ["<end>","<stop>"] will stop generation at the first instance of "<end>" or "<stop>".',
-            default=[],
+            default=None,
         ),
         seed: int | None = Input(
             description="Random seed. Leave unspecified to randomize the seed.",
             default=None,
         ),
-        stream: bool = Input(
-            description="Request streaming response. Defaults to False.",
-            default=False,
+        stream: bool | None = Input(
+            description="Request streaming response.",
+            default=None,
         ),
         # pyrefly: ignore [bad-return]
     ) -> AsyncConcatenateIterator[str]:
@@ -335,7 +366,6 @@ class Predictor(BasePredictor):
         request_id = str(next(self.request_counter))
         logger.info("predict() commencing request_id=%s", request_id)
 
-        top_k = -1 if (top_k or 0) == 0 else top_k
         stream_options = StreamOptions() if stream else None
         if max_completion_tokens is None:
             max_completion_tokens = max_tokens

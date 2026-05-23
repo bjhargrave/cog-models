@@ -126,7 +126,7 @@ class ChatCompletionDocumentParam(typing.TypedDict, total=False):
 
 
 def process_documents(
-    documents: list[ChatCompletionDocumentParam],
+    documents: list[ChatCompletionDocumentParam] | None,
 ) -> list[dict[str, str]] | None:
     """Convert all document values to str."""
     if documents:
@@ -362,17 +362,17 @@ class Predictor(BasePredictor):
         # prompt must be the first argument
         # The LangChain Replicate class will use the first argument to supply the prompt
         prompt: str | None = Input(description="Completion API user prompt.", default=None),
-        messages: list[CustomChatCompletionMessageParam] = Input(
+        messages: list[CustomChatCompletionMessageParam] | None = Input(
             description="Chat completion API messages.",
-            default=[],
+            default=None,
         ),
-        documents: list[ChatCompletionDocumentParam] = Input(
+        documents: list[ChatCompletionDocumentParam] | None = Input(
             description="Documents for request. Passed to the chat template.",
-            default=[],
+            default=None,
         ),
-        tools: list[ChatCompletionToolParam] = Input(
+        tools: list[ChatCompletionToolParam] | None = Input(
             description="Tools for request. Passed to the chat template.",
-            default=[],
+            default=None,
         ),
         tool_choice: str | None = Input(
             description="Tool choice for request. If the choice is a specific function, this should be specified as a JSON string.",
@@ -394,9 +394,9 @@ class Predictor(BasePredictor):
             description="Add generation prompt. Passed to the chat template. Defaults to True.",
             default=True,
         ),
-        chat_template_kwargs: dict[str, typing.Any] = Input(
+        chat_template_kwargs: dict[str, typing.Any] | None = Input(
             description="Additional arguments to be passed to the chat template.",
-            default={},
+            default=None,
         ),
         min_tokens: int = Input(
             description="The minimum number of tokens the model should generate as output.",
@@ -411,36 +411,36 @@ class Predictor(BasePredictor):
             description="An upper bound for the number of tokens that can be generated for a completion, including visible output tokens and reasoning tokens.",
             default=None,
         ),
-        temperature: float = Input(
+        temperature: float | None = Input(
             description="The value used to modulate the next token probabilities.",
-            default=0.0,
+            default=None,
         ),
-        top_p: float = Input(
+        top_p: float | None = Input(
             description="A probability threshold for generating the output. If < 1.0, only keep "
             "the top tokens with cumulative probability >= top_p (nucleus filtering). "
             "Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751).",
-            default=0.9,
+            default=None,
         ),
-        top_k: int = Input(
+        top_k: int | None = Input(
             description="The number of highest probability tokens to consider for generating "
             "the output. If > 0, only keep the top k tokens with highest probability "
             "(top-k filtering).",
-            default=50,
+            default=None,
         ),
         presence_penalty: float | None = Input(description="Presence penalty", default=None),
         frequency_penalty: float | None = Input(description="Frequency penalty", default=None),
         repetition_penalty: float | None = Input(description="Repetition penalty", default=None),
-        stop: list[str] = Input(
+        stop: list[str] | None = Input(
             description='A list of sequences to stop generation at. For example, ["<end>","<stop>"] will stop generation at the first instance of "<end>" or "<stop>".',
-            default=[],
+            default=None,
         ),
         seed: int | None = Input(
             description="Random seed. Leave unspecified to randomize the seed.",
             default=None,
         ),
-        stream: bool = Input(
-            description="Request streaming response. Defaults to False.",
-            default=False,
+        stream: bool | None = Input(
+            description="Request streaming response.",
+            default=None,
         ),
         # pyrefly: ignore [bad-return]
     ) -> AsyncConcatenateIterator[str]:
@@ -448,7 +448,6 @@ class Predictor(BasePredictor):
         request_id = str(next(self.request_counter))
         logger.info("predict() commencing request_id=%s", request_id)
 
-        top_k = -1 if top_k == 0 else top_k
         stream_options = StreamOptions() if stream else None
         if max_completion_tokens is None:
             max_completion_tokens = max_tokens
@@ -476,7 +475,7 @@ class Predictor(BasePredictor):
             request = ChatCompletionRequest(
                 model=self.serving_models.model_name(),
                 messages=messages,
-                tools=tools or None,
+                tools=tools,
                 tool_choice=process_tool_choice(tool_choice),
                 documents=process_documents(documents),
                 response_format=response_format,
