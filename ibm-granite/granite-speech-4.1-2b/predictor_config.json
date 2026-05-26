@@ -11,6 +11,9 @@
             "image": 0,
             "video": 0
         },
-        "trust_remote_code": false
+        "trust_remote_code": false,
+        "override_generation_config": {
+            "temperature": 0.2
+        }
     }
 }
