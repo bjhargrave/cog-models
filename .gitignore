@@ -8,3 +8,9 @@ weights/
 !weights/.gitignore
 sparse_logs/
 .vscode/
+
+# Exclude Python cache files
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

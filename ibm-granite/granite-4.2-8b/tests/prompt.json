@@ -1,0 +1,6 @@
+{
+    "prompt": "What is Pi?",
+    "chat_template_kwargs": {
+        "enable_thinking": false
+    }
+}

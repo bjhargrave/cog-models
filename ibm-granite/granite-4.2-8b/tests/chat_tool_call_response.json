@@ -1,0 +1,55 @@
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "What is the weather like in Boston today?"
+        },
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "chatcmpl-tool-92d6ee08f1f14bab9a593271ca4174ab",
+                    "type": "function",
+                    "function": {
+                        "name": "get_current_weather",
+                        "arguments": "{\n  \"location\": \"Boston\",\n  \"unit\": \"fahrenheit\"\n}"
+                    }
+                }
+            ]
+        },
+        {
+            "role": "tool",
+            "content": "{\"description\": \"sunny\", \"temperature\": 30, \"humidity\": 50}",
+            "tool_call_id": "chatcmpl-tool-92d6ee08f1f14bab9a593271ca4174ab"
+        }
+    ],
+    "tools": [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_current_weather",
+                "description": "Get the current weather in a given location",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location": {
+                            "description": "The city, e.g. San Francisco, CA",
+                            "type": "string"
+                        },
+                        "unit": {
+                            "enum": [
+                                "celsius",
+                                "fahrenheit"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "location"
+                    ]
+                }
+            }
+        }
+    ]
+}
