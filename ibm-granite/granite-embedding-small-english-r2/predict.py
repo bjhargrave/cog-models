@@ -297,6 +297,7 @@ class EmbeddingRequest:
 @dataclass
 class EmbeddingResponse:
     outputs: list[Embedding]
+    token_input_count: int
 
 
 # pylint: disable=invalid-overridden-method, signature-differs, abstract-method
@@ -327,7 +328,11 @@ class Predictor(BasePredictor):
             # normalize the embeddings
             query_embeddings = torch.nn.functional.normalize(query_embeddings, dim=1)
 
-        return EmbeddingResponse(outputs=query_embeddings.cpu().tolist())
+        return EmbeddingResponse(
+            outputs=query_embeddings.cpu().tolist(),
+            # count input tokens: sum of non-padding tokens across all sequences
+            token_input_count=int(tokenized_queries["attention_mask"].sum().item()),
+        )
 
     async def setup(self, weights: CogPath | str | None) -> None:
         # Model weights must be in the "weights" folder.
@@ -357,15 +362,11 @@ class Predictor(BasePredictor):
         )
         await self.queue_worker.start()
 
-        self._testing = True
-        output = await self.predict(
-            **dict(
-                self._defaults,
-                **{"texts": ["Dogs are mammals.", "Fish are not mammals."]},
-            )
-        )
+        inputs: dict[str, Any] = self._defaults | {
+            "texts": ["Dogs are mammals.", "Fish are not mammals."],
+        }
+        output = await self.predict(**inputs)
         embedding_lengths = [len(embedding) for embedding in output]  # type: ignore
-        self._testing = False
         logger.debug(
             "Test prediction output embedding_count=%s, embedding_lengths=%s",
             len(embedding_lengths),
@@ -412,6 +413,8 @@ class Predictor(BasePredictor):
                 )
 
         logger.info("Generation took %.2fs", time.time() - start_time)
+
+        self.record_metric("token_input_count", response.token_input_count)
 
         logger.info("predict() complete")
 
