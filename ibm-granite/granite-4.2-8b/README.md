@@ -6,7 +6,7 @@ A [Replicate](https://replicate.com) [Cog](https://cog.run) container that serve
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Replicate platform                              │
+│  Replicate platform                             │
 │                                                 │
 │  HTTP request ──► Cog runtime                   │
 │                      │                          │
@@ -117,7 +117,7 @@ The prediction always yields a stream of `str` tokens via `AsyncConcatenateItera
     "enable_force_include_usage": true,
     "enable_auto_tool_choice": true,
     "tool_call_parser": "qwen3_coder",
-    "reasoning_parser": "deepseek_v3",
+    "reasoning_parser": "nemotron_v3",
     "log_error_stack": true,
     "engine_args": {
         "served_model_name": "ibm-granite/granite-4.2-8b",
