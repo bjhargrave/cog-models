@@ -172,7 +172,7 @@ Weights are declared in [`cog.yaml`](cog.yaml):
 weights:
   - name: granite-4.2-8b
     source:
-      uri: hf://ibm-research/granite-4.2-8b-prerelease-r260622a
+      uri: hf://ibm-granite/granite-4.2-8b
     target: /src/weights
 ```
 
@@ -184,7 +184,7 @@ The `__main__` block at the bottom of [`run.py`](run.py) lets you run inference 
 
 ```bash
 # Download the model to the HF cache first
-hf download ibm-research/granite-4.2-8b-prerelease-r260622a
+hf download ibm-granite/granite-4.2-8b
 
 # Run against one or more JSON test fixtures
 python run.py tests/prompt.json

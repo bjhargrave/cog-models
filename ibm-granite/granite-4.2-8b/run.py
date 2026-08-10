@@ -670,7 +670,7 @@ class Runner(BaseRunner):
 if __name__ == "__main__":
     from huggingface_hub import _CACHED_NO_EXIST, try_to_load_from_cache
 
-    repo_id = "ibm-research/granite-4.2-8b-prerelease-r260622a"
+    repo_id = "ibm-granite/granite-4.2-8b"
 
     async def main():
         """Async main method for direct testing."""

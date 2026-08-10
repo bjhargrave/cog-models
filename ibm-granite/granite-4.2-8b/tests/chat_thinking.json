@@ -2,7 +2,7 @@
     "messages": [
         {
             "role": "user",
-            "content": "Which version number is greater, 9.11 or 9.9?"
+            "content": "Of the following 2 semantic version numbers, which is latest version? 9.11 or 9.9?"
         }
     ],
     "chat_template_kwargs": {
