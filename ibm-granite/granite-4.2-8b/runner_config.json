@@ -9,9 +9,6 @@
     "engine_args": {
         "served_model_name": "ibm-granite/granite-4.2-8b",
         "gpu_memory_utilization": 0.95,
-        "trust_remote_code": false,
-        "override_generation_config": {
-            "temperature": 0.0
-        }
+        "trust_remote_code": false
     }
 }
