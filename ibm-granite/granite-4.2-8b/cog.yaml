@@ -3,7 +3,8 @@
 # Configuration for Cog ⚙️
 # Reference: https://cog.run/yaml
 
-model: "r8.im/ibm-granite/granite-4.2-8b"
+# model: "r8.im/ibm-granite/granite-4.2-8b"
+image: "r8.im/ibm-granite/granite-4.2-8b"
 
 build:
   sdk_version: "0.21.0"
@@ -24,8 +25,8 @@ concurrency:
   max: 3
 
 # model weight source: cog weights import
-weights:
-  - name: granite-4.2-8b
-    source:
-      uri: hf://ibm-granite/granite-4.2-8b
-    target: /src/weights
+# weights:
+#   - name: granite-4.2-8b
+#     source:
+#       uri: hf://ibm-granite/granite-4.2-8b
+#     target: /src/weights

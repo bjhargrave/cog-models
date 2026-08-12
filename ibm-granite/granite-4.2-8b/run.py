@@ -668,15 +668,16 @@ class Runner(BaseRunner):
 
 # For testing
 if __name__ == "__main__":
-    from huggingface_hub import _CACHED_NO_EXIST, try_to_load_from_cache
+    # from huggingface_hub import _CACHED_NO_EXIST, try_to_load_from_cache
 
-    repo_id = "ibm-granite/granite-4.2-8b"
+    # repo_id = "ibm-granite/granite-4.2-8b"
 
     async def main():
         """Async main method for direct testing."""
-        config_path = try_to_load_from_cache(repo_id=repo_id, filename="config.json")
-        if config_path is None or config_path is _CACHED_NO_EXIST:
-            sys.exit(f"{repo_id} is not in the HF cache. Please download with: hf download {repo_id}")
+        config_path = "weights/config.json"
+        # config_path = try_to_load_from_cache(repo_id=repo_id, filename="config.json")
+        # if config_path is None or config_path is _CACHED_NO_EXIST:
+        #     sys.exit(f"{repo_id} is not in the HF cache. Please download with: hf download {repo_id}")
         weights = CogPath(str(config_path)).parent
         runner = Runner()
         await runner.setup(weights)

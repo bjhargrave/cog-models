@@ -16,7 +16,7 @@ __pycache__
 .ruff_cache
 
 # Model download metadata
-weights/
+weights/.cache/
 
 # Exclude test info
 tests
