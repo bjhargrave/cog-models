@@ -5,7 +5,6 @@
             "content": "What is Pi?"
         }
     ],
-    "temperature": 0.5,
     "repetition_penalty": 1.05,
     "chat_template_kwargs": {
         "enable_thinking": false
