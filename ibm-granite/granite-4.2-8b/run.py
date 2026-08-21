@@ -380,6 +380,15 @@ class Runner(BaseRunner):
             description="An object specifying the format that the model must output.",
             default=None,
         ),
+        include_reasoning: bool = Input(
+            description="Include reasoning content in the response.",
+            default=True,
+        ),
+        reasoning_effort: str | None = Input(
+            description="Constrains effort on reasoning.",
+            choices=["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+            default=None,
+        ),
         system_prompt: str | None = Input(
             description="Completion API system prompt. The chat template provides a good default.",
             default=None,
@@ -480,6 +489,8 @@ class Runner(BaseRunner):
                 chat_template=chat_template,
                 add_generation_prompt=add_generation_prompt,
                 chat_template_kwargs=chat_template_kwargs,
+                include_reasoning=include_reasoning,
+                reasoning_effort=reasoning_effort, # pyrefly: ignore [bad-argument-type]
                 n=1,
                 top_k=top_k,
                 top_p=top_p,

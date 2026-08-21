@@ -3,6 +3,5 @@
     "chat_template_kwargs": {
         "enable_thinking": true
     },
-    "max_completion_tokens": 4000,
-    "min_tokens": 200
+    "max_completion_tokens": 8192
 }
