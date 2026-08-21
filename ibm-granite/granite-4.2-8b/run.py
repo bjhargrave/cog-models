@@ -59,7 +59,9 @@ from vllm.entrypoints.openai.models.protocol import (
 from vllm.entrypoints.openai.models.serving import OpenAIServingModels
 from vllm.entrypoints.serve.render.serving import OpenAIServingRender
 from vllm.entrypoints.serve.utils.request_logger import RequestLogger
+from vllm.reasoning import ReasoningParserManager
 from vllm.tasks import SupportedTask
+from vllm.tool_parsers import ToolParserManager
 from vllm.utils.counter import Counter
 from vllm.v1.engine.async_llm import AsyncLLM
 
@@ -108,7 +110,9 @@ class RunnerConfig(BaseModel):
     enable_force_include_usage: Annotated[bool, Field(default=False)]
     enable_auto_tool_choice: Annotated[bool, Field(default=False)]
     tool_call_parser: Annotated[str | None, Field(default=None)]
+    tool_parser_plugin: Annotated[str, Field(default="")]
     reasoning_parser: Annotated[str, Field(default="")]
+    reasoning_parser_plugin: Annotated[str | None, Field(default=None)]
     response_role: Annotated[str, Field(default="assistant")]
     log_error_stack: Annotated[bool, Field(default=envs.VLLM_SERVER_DEV_MODE)]
     trust_request_chat_template: Annotated[bool, Field(default=False)]
@@ -186,6 +190,11 @@ class Runner(BaseRunner):
 
     def _initialize_engine(self, weights: CogPath) -> AsyncLLM:
         """Initialize and configure the AsyncLLM engine."""
+        if self.config.tool_parser_plugin and len(self.config.tool_parser_plugin) > 3:
+            ToolParserManager.import_tool_parser(self.config.tool_parser_plugin)
+        if self.config.reasoning_parser_plugin and len(self.config.reasoning_parser_plugin) > 3:
+            ReasoningParserManager.import_reasoning_parser(self.config.reasoning_parser_plugin)
+
         engine_args = AsyncEngineArgs(**self.config.engine_args)
         if "model" not in self.config.engine_args:
             engine_args.model = weights.resolve().as_posix()
