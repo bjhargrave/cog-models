@@ -173,7 +173,7 @@ class Runner(BaseRunner):
     def _resolve_weights_path(self, weights: CogPath | str | None) -> CogPath:
         """Resolve and validate the weights path."""
         if not weights:
-            return CogPath("/src/weights")
+            return CogPath("./weights")
         return CogPath(weights) if isinstance(weights, str) else weights
 
     def _get_served_model_names(self, model_config: ModelConfig) -> list[str]:
@@ -674,7 +674,7 @@ if __name__ == "__main__":
 
     async def main():
         """Async main method for direct testing."""
-        config_path = "weights/config.json"
+        config_path = "./weights/config.json"
         # config_path = try_to_load_from_cache(repo_id=repo_id, filename="config.json")
         # if config_path is None or config_path is _CACHED_NO_EXIST:
         #     sys.exit(f"{repo_id} is not in the HF cache. Please download with: hf download {repo_id}")
