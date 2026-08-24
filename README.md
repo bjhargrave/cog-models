@@ -7,7 +7,7 @@ This project holds model packaging folders to build containers to deploy to Repl
 ### cog
 
 You will need to select the release of [cog](https://github.com/replicate/cog/releases) to use for a model.
-I am using 0.14.4 as of this writing.
+I am using 0.21.0 as of this writing.
 You will need to place the `cog` command on your PATH.
 
 On any `cog` command you can add `--debug` for more output.
@@ -48,27 +48,29 @@ supported-driver-capabilities = "compute,utility"
 ## Model folder
 
 Create folders whose path matches the Huggingface slug for the model.
-For example, `ibm-granite/granite-3.3-8b-instruct`.
+For example, `ibm-granite/granite-4.2-8b`.
 Change into this folder for the remaining steps.
 You will want to populate this folder with the files in git from an existing model folder.
 The new folder should contain:
 
 ```text
-ibm-granite/granite-3.3-8b-instruct
+ibm-granite/granite-4.2-8b
 ├── .dockerignore
 ├── cog.yaml
-├── predict.py
-├── predictor_config.json
 ├── pyproject.toml
 ├── requirements.txt
+├── run.py
+├── runner_config.json
+└── tests
+    └── *.json
 └── weights
     └── .gitignore
 ```
 
 ### pyproject.toml
 
-This file needs to be edited to specify the cog version matching the `cog` command installed earlier.
-You will also need to specify the `python-version` for the container and any other python packages, such as `vllm` which are needed by `predict.py`.
+This file needs to be edited to specify the cog version matching the `cog` command installed earlier in `sdk_version`.
+You will also need to specify the `python-version` for the container and any other python packages, such as `vllm` which are needed by `run.py`.
 Use `==` version specifications for build reproducibility.
 
 ### requirements.txt
@@ -86,20 +88,23 @@ Once you have built the `requirements.txt` file, you will want to create a virtu
 Just don't put the virtual env folder in the model folder or `cog` will include it in the container image which we don't want.
 
 ```sh
-(cd .. && uv venv --python 3.11 venv)
-source ../venv/bin/activate
+mkdir -p ../venv/$(basename $PWD)
+uv venv --python 3.13 ../venv/$(basename $PWD)
+ln -s ../venv/$(basename $PWD) .venv
+source .venv/bin/activate
 uv pip install --requirements requirements.txt
+uv pip install cog==0.21.0
 ```
 
 Make sure to use the same python version as specified in `pyproject.toml`.
 
 ### cog.yaml
 
-Edit the `image` key to the full name of the image to use when pushing to Replicate.
+Edit the `image` key to the name of the image to use when pushing to Replicate.
 For example,
 
 ```yaml
-image: "r8.im/ibm-granite/granite-3.3-8b-instruct:1.0.0"
+image: "r8.im/ibm-granite/granite-4.2-8b"
 ```
 
 Make sure to update the image version if you have already pushed that version.
@@ -107,28 +112,40 @@ Make sure to update the image version if you have already pushed that version.
 Also update any other versions, cuda, python, as needed.
 Make sure to use the same python version as specified in `pyproject.toml`.
 
-#### predictor_config.json
+#### runner_config.json
 
 This file needs to be edited to specify the `served_model_name` in the `engine_arg` and any other desired engine args for vLLM.
 
-### predict.py
+### run.py
 
-This module contains the `setup` and `predict` methods invoked to setup and infer the model.
+This module contains the `setup` and `run` methods invoked to setup and infer the model.
 This code may need changes to support certain models and their parameters such as multimodal parameters.
 
 ### weights
 
-Model weights are packaged in the container.
+Model weights are packaged in the container and are also needed for local testing.
 They need to be downloaded into the `weights` folder of the model folder.
 For example,
 
 ```sh
-hf download --local-dir weights ibm-granite/granite-3.3-8b-instruct
+hf download --local-dir weights ibm-granite/granite-4.2-8b
 ```
 
 These model weight files are not committed to the git repo but are added to the container image.
 
-## Building
+## Local testing
+
+The `__main__` block at the bottom of `run.py` lets you run inference directly from the command line, loading the model from the local `weights` folder.
+
+```sh
+# Run against one or more JSON test fixtures
+python run.py tests/prompt.json
+python run.py tests/chat.json tests/chat_thinking.json
+```
+
+Each fixture file is a plain JSON object whose keys map to `run()` input parameters. The test files in `tests` folder cover the main usage patterns.
+
+## Building container
 
 To build the container, use the following command.
 
@@ -141,27 +158,27 @@ One for the weights and another for the rest which includes the weights as a lay
 
 ```sh
 ➜ docker image ls
-REPOSITORY                                  TAG             IMAGE ID       CREATED       SIZE
-r8.im/ibm-granite/granite-3.3-8b-instruct   1.0.0           d3f4991be79d   3 hours ago   34.2GB
-r8.im/ibm-granite/granite-3.3-8b-instruct   1.0.0-weights   d643be567003   3 hours ago   16.3GB
+IMAGE
+r8.im/ibm-granite/granite-4.2-8b:latest
+r8.im/ibm-granite/granite-4.2-8b-weights:latest
 ```
 
-## Testing
+## Testing container
 
-To test the container, you can use the `cog predict` command.
+To test the container, you can use the `cog run` command.
 
 ```sh
-cog predict r8.im/ibm-granite/granite-3.3-8b-instruct:1.0.0 --progress plain --gpus 1 -i "prompt=What is your name?"
+cog run r8.im/ibm-granite/granite-4.2-8b-instruct:latest --progress plain --gpus all --json @tests/chat.json
 ```
 
 You will need to specify the `--gpus` argument to ensure the container can access a GPU.
 
-This will start the container, call `setup`, and call the `predict` method with the specified prompt.
+This will start the container, call `setup`, and call the `run` method with the specified prompt.
 
 To test using `curl`, you can start the container with
 
 ```sh
-docker run --rm -p 5000:5000 --gpus 1 r8.im/ibm-granite/granite-3.3-8b-instruct:1.0.0
+docker run --rm -p 5000:5000 --gpus 1 r8.im/ibm-granite/granite-4.2-8b:latest
 ```
 
 Then from another shell
@@ -175,15 +192,20 @@ curl -s http://localhost:5000/shutdown -X POST | jq .
 
 Use `LocalForward 5000 localhost:5000` in your `.ssh/config` file if you ssh into the build/docker host so you can curl from your local system.
 
-## Deploying
+You can inspect the generated openapi schema for the run methods inputs with
 
-When you are ready to deploy to Replicate, you must first [create the model](https://replicate.com/create) on the Replicate web site if this is the first container deployment for the model.
+```sh
+docker inspect r8.im/ibm-granite/granite-4.2-8b:latest --format='{{index .Config.Labels "run.cog.openapi_schema"}}' | jq '.'
+```
 
-Then login to Replicate and push the container to the Replicate container repository.
+## Deploying container
+
+When you are ready to deploy to Replicate, login to Replicate and push the container to the Replicate container repository.
 
 ```sh
 cog login
-cog push --progress plain --separate-weights --use-cog-base-image
+docker tag r8.im/ibm-granite/granite-4.2-8b:latest r8.im/ibm-granite/granite-4.2-8b:1.0.0
+docker push r8.im/ibm-granite/granite-4.2-8b:1.0.0
 ```
 
 After the container is pushed, you will need to go to the Replicate web site and configure the model settings and create a deployment for the model.

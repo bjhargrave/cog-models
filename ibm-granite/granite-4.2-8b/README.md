@@ -117,7 +117,8 @@ The prediction always yields a stream of `str` tokens via `AsyncConcatenateItera
     "enable_force_include_usage": true,
     "enable_auto_tool_choice": true,
     "tool_call_parser": "qwen3_coder",
-    "reasoning_parser": "nemotron_v3",
+    "reasoning_parser": "granite_thinking_parser",
+    "reasoning_parser_plugin": "./weights/granite_thinking_parser.py",
     "log_error_stack": true,
     "engine_args": {
         "served_model_name": "ibm-granite/granite-4.2-8b",
