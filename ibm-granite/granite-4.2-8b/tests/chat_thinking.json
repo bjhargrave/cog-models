@@ -1,0 +1,13 @@
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "Of the following 2 semantic version numbers, which is latest version? 9.11 or 9.9?"
+        }
+    ],
+    "include_reasoning": true,
+    "chat_template_kwargs": {
+        "enable_thinking": true
+    },
+    "max_completion_tokens": 8192
+}

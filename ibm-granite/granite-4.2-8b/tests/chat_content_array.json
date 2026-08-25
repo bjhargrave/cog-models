@@ -1,0 +1,13 @@
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "What is Pi?"
+                }
+            ]
+        }
+    ]
+}

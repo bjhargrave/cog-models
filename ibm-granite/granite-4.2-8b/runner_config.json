@@ -1,0 +1,15 @@
+{
+    "chat_template_content_format": "string",
+    "enable_log_requests": true,
+    "enable_force_include_usage": true,
+    "enable_auto_tool_choice": true,
+    "tool_call_parser": "qwen3_coder",
+    "reasoning_parser": "granite_thinking_parser",
+    "reasoning_parser_plugin": "./weights/granite_thinking_parser.py",
+    "log_error_stack": true,
+    "engine_args": {
+        "served_model_name": "ibm-granite/granite-4.2-8b",
+        "gpu_memory_utilization": 0.95,
+        "trust_remote_code": false
+    }
+}

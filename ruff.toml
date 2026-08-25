@@ -1,4 +1,4 @@
-include = ["predict.py"]
+include = ["predict.py", "run.py"]
 target-version = "py312"
 line-length = 180
 

@@ -1,0 +1,3 @@
+{
+    "prompt": "<|im_start|>user\nWhat is Pi?<|im_end|>\n<|im_start|>assistant\n<think></think>"
+}

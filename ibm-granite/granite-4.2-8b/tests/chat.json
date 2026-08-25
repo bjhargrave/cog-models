@@ -1,0 +1,13 @@
+{
+    "messages": [
+        {
+            "role": "user",
+            "content": "What is Pi?"
+        }
+    ],
+    "repetition_penalty": 1.05,
+    "include_reasoning": false,
+    "chat_template_kwargs": {
+        "enable_thinking": false
+    }
+}
