@@ -1,0 +1,7 @@
+{
+    "served_model_name": "ibm-granite/granite-speech-5.0-470m-turboctc",
+    "model_kwargs": {
+        "trust_remote_code": true,
+        "device_map": "auto"
+    }
+}

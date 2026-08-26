@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "granite-speech-5.0-470m-turboctc"
+version = "1.0.0"
+description = "Dependencies for run.py"
+dependencies = [
+    "transformers==5.16.0",
+    "pydantic==2.13.4",
+    "torch==2.13.0",
+    "torchaudio==2.11.0",
+    "torchcodec==0.16.0",
+    "accelerate==1.14.0",
+    "soundfile==0.14.0",
+    "soxr==1.1.0"
+]
+requires-python = "~= 3.13.0"
+
+# This needs to match the CUDA version in cog.yaml
+[[tool.uv.index]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu129"
+explicit = true # This prevents uv from searching this index for unrelated packages
+
+[tool.uv.sources]
+torch = { index = "pytorch-cuda" }
