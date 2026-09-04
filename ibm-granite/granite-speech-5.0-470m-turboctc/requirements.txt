@@ -18,11 +18,11 @@ click==8.4.2
     # via huggingface-hub
 cuda-bindings==12.9.7
     # via torch
-cuda-pathfinder==1.6.1
+cuda-pathfinder==1.7.0
     # via cuda-bindings
 cuda-toolkit==12.9.1
     # via torch
-filelock==3.32.3
+filelock==3.32.4
     # via
     #   huggingface-hub
     #   torch

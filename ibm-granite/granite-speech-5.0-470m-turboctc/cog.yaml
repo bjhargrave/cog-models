@@ -6,7 +6,7 @@
 image: "r8.im/ibm-granite/granite-speech-5.0-470m-turboctc"
 
 build:
-  sdk_version: "0.21.0"
+  sdk_version: "0.22.0"
   # set to true if your model requires a GPU
   gpu: true
   # This needs to match the CUDA version in pyproject.toml
